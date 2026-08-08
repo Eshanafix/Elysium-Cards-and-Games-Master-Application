@@ -13,6 +13,7 @@ develop-eggs/
 dist/
 downloads/
 eggs/
+packaging/installer_output/
 .eggs/
 lib/
 lib64/
@@ -31,6 +32,10 @@ MANIFEST
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+#   ...except our own hand-maintained build spec (docs/IMPLEMENTATION_PLAN.md
+#   phase 8) -- this one is a deliberate, version-controlled build config,
+#   not an auto-generated throwaway.
+!packaging/ElysiumMasterApplication.spec
 
 # Installer logs
 pip-log.txt
@@ -186,7 +191,10 @@ cython_debug/
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #   and can be added to the global gitignore or merged into this file.  For a more nuclear
 #   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
+.idea/
+
+# Claude Code local settings (machine-specific permission allowlist)
+.claude/
 
 # Abstra
 #   Abstra is an AI-powered process automation framework.

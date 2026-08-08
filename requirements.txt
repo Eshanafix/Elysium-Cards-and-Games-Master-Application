@@ -1,0 +1,6 @@
+PySide6>=6.6
+requests>=2.31
+pymongo>=4.7
+python-dotenv>=1.0
+keyring>=24.0
+argon2-cffi>=23.1

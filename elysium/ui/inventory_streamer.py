@@ -1,0 +1,297 @@
+"""
+Streamer "My Inventory" screen (LLD section 11, 24.2) and the admin
+read-only "Streamer Inventory" view of any streamer's holdings (LLD 7.1,
+24.3).
+"""
+
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from elysium.models.users import ROLE_STREAMER
+from elysium.repositories import master_repository as repo
+from elysium.services import inventory_service, product_service
+from elysium.ui.numeric_inputs import SelectAllSpinBox
+
+
+class ClaimInventoryDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Claim Received Inventory")
+
+        self._products = [p for p in product_service.list_products() if p.is_active]
+
+        layout = QVBoxLayout()
+
+        self.product_combo = QComboBox()
+        for product in self._products:
+            self.product_combo.addItem(product.name, product)
+        self.product_combo.currentIndexChanged.connect(self.update_converted_label)
+
+        self.boxes_input = SelectAllSpinBox()
+        self.boxes_input.setRange(0, 9999)
+        self.boxes_input.valueChanged.connect(self.update_converted_label)
+
+        self.loose_packs_input = SelectAllSpinBox()
+        self.loose_packs_input.setRange(0, 9999)
+        self.loose_packs_input.valueChanged.connect(self.update_converted_label)
+
+        self.converted_label = QLabel()
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(QLabel("Product:"))
+        layout.addWidget(self.product_combo)
+        layout.addWidget(QLabel("Boxes:"))
+        layout.addWidget(self.boxes_input)
+        layout.addWidget(QLabel("Additional loose packs:"))
+        layout.addWidget(self.loose_packs_input)
+        layout.addWidget(self.converted_label)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+        self.update_converted_label()
+
+    def selected_product(self):
+        return self.product_combo.currentData()
+
+    def update_converted_label(self):
+        product = self.selected_product()
+
+        if not product:
+            self.converted_label.setText("No products available.")
+            return
+
+        packs = inventory_service.box_to_packs(
+            self.boxes_input.value(), self.loose_packs_input.value(), product.packs_per_box
+        )
+        self.converted_label.setText(f"Will claim: {packs} packs (packs/box: {product.packs_per_box})")
+
+    def converted_packs(self) -> int:
+        product = self.selected_product()
+        return inventory_service.box_to_packs(
+            self.boxes_input.value(), self.loose_packs_input.value(), product.packs_per_box
+        )
+
+
+class ReturnInventoryDialog(QDialog):
+    def __init__(self, product_name: str, current_packs: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Return Inventory: {product_name}")
+
+        layout = QVBoxLayout()
+
+        self.packs_input = SelectAllSpinBox()
+        self.packs_input.setRange(1, max(1, current_packs))
+
+        self.reason_input = QTextEdit()
+        self.reason_input.setPlaceholderText("Reason (required)")
+        self.reason_input.setMaximumHeight(80)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(QLabel(f"Currently held: {current_packs}"))
+        layout.addWidget(QLabel("Packs to return:"))
+        layout.addWidget(self.packs_input)
+        layout.addWidget(QLabel("Reason:"))
+        layout.addWidget(self.reason_input)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+
+class MyInventoryScreen(QWidget):
+    def __init__(self, current_user):
+        super().__init__()
+
+        self.current_user = current_user
+        self._rows = []
+
+        layout = QVBoxLayout()
+
+        title = QLabel("My Inventory")
+        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+
+        button_row = QHBoxLayout()
+        self.claim_button = QPushButton("Claim Received Inventory")
+        self.claim_button.clicked.connect(self.claim_inventory)
+        self.return_button = QPushButton("Return Inventory")
+        self.return_button.clicked.connect(self.return_inventory)
+
+        button_row.addWidget(self.claim_button)
+        button_row.addWidget(self.return_button)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price", "Market Value"])
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        self.message_label = QLabel()
+        self.message_label.setWordWrap(True)
+
+        layout.addWidget(title)
+        layout.addLayout(button_row)
+        layout.addWidget(self.table)
+        layout.addWidget(self.message_label)
+
+        self.setLayout(layout)
+
+        self.reload()
+
+    def reload(self):
+        self._rows = inventory_service.get_streamer_inventory_view(self.current_user.streamer_database_name)
+        self.table.setRowCount(len(self._rows))
+
+        for row_index, row in enumerate(self._rows):
+            product = row["product"]
+            price = row["resolved_pack_price"]
+            market_value = (price * row["current_packs"]) if price is not None else None
+
+            self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
+            self.table.setItem(row_index, 1, QTableWidgetItem(str(row["current_packs"])))
+            self.table.setItem(row_index, 2, QTableWidgetItem(f"${price:.2f}" if price is not None else row["price_status"]))
+            self.table.setItem(row_index, 3, QTableWidgetItem(f"${market_value:.2f}" if market_value is not None else ""))
+
+        self.table.resizeColumnsToContents()
+
+    def selected_row(self) -> dict | None:
+        rows = self.table.selectionModel().selectedRows()
+
+        if not rows:
+            return None
+
+        return self._rows[rows[0].row()]
+
+    def claim_inventory(self):
+        dialog = ClaimInventoryDialog(self)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        product = dialog.selected_product()
+
+        if not product:
+            self.show_message("No product selected.", error=True)
+            return
+
+        packs = dialog.converted_packs()
+
+        if packs <= 0:
+            self.show_message("Enter at least one box or loose pack.", error=True)
+            return
+
+        try:
+            inventory_service.streamer_claim(
+                self.current_user.id, self.current_user.streamer_database_name, product.id, packs,
+                requested_by=self.current_user.id,
+            )
+        except (inventory_service.InventoryValidationError,
+                inventory_service.InsufficientInventoryError,
+                inventory_service.StreamerLockedError) as e:
+            self.show_message(str(e), error=True)
+            return
+
+        self.show_message(f"Claimed {packs} packs of '{product.name}'.", error=False)
+        self.reload()
+
+    def return_inventory(self):
+        row = self.selected_row()
+
+        if not row:
+            self.show_message("Select a product first.", error=True)
+            return
+
+        product = row["product"]
+        dialog = ReturnInventoryDialog(product.name, row["current_packs"], self)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        packs = dialog.packs_input.value()
+        reason = dialog.reason_input.toPlainText().strip()
+
+        try:
+            inventory_service.streamer_return(
+                self.current_user.id, self.current_user.streamer_database_name, product.id, packs, reason,
+                requested_by=self.current_user.id,
+            )
+        except (inventory_service.InventoryValidationError,
+                inventory_service.InsufficientInventoryError,
+                inventory_service.StreamerLockedError) as e:
+            self.show_message(str(e), error=True)
+            return
+
+        self.show_message(f"Returned {packs} packs of '{product.name}'.", error=False)
+        self.reload()
+
+    def show_message(self, text: str, error: bool):
+        self.message_label.setStyleSheet("color: #b00020;" if error else "color: #1a7f37;")
+        self.message_label.setText(text)
+
+
+class StreamerInventoryAdminScreen(QWidget):
+    """Admin read-only view of any streamer's current inventory (LLD 7.1)."""
+
+    def __init__(self, current_user):
+        super().__init__()
+
+        self.current_user = current_user
+        self._rows = []
+        self._streamers = [u for u in repo.list_users() if ROLE_STREAMER in u.roles]
+
+        layout = QVBoxLayout()
+
+        title = QLabel("Streamer Inventory")
+        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+
+        self.streamer_combo = QComboBox()
+        for user in self._streamers:
+            self.streamer_combo.addItem(user.username, user)
+        self.streamer_combo.currentIndexChanged.connect(self.reload)
+
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price"])
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        layout.addWidget(title)
+        layout.addWidget(QLabel("Streamer:"))
+        layout.addWidget(self.streamer_combo)
+        layout.addWidget(self.table)
+
+        self.setLayout(layout)
+
+        self.reload()
+
+    def reload(self):
+        streamer = self.streamer_combo.currentData()
+
+        if not streamer or not streamer.streamer_database_name:
+            self.table.setRowCount(0)
+            return
+
+        self._rows = inventory_service.get_streamer_inventory_view(streamer.streamer_database_name)
+        self.table.setRowCount(len(self._rows))
+
+        for row_index, row in enumerate(self._rows):
+            product = row["product"]
+            price = row["resolved_pack_price"]
+
+            self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
+            self.table.setItem(row_index, 1, QTableWidgetItem(str(row["current_packs"])))
+            self.table.setItem(row_index, 2, QTableWidgetItem(f"${price:.2f}" if price is not None else row["price_status"]))
+
+        self.table.resizeColumnsToContents()
