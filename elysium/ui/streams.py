@@ -450,6 +450,7 @@ class StreamsScreen(QWidget):
         self._pack_grid_stretch_state: dict = {}
         self._holdings_grid_stretch_state: dict = {}
         self._price_refresh_worker = None
+        self._pack_tile_reload_pending = False
 
         layout = QVBoxLayout()
 
@@ -797,11 +798,27 @@ class StreamsScreen(QWidget):
         except (break_service.BreakValidationError, break_service.InsufficientAvailabilityError) as e:
             self.show_message(str(e), error=True)
 
+        self._schedule_pack_tile_reload()
+
+    def _schedule_pack_tile_reload(self):
         # Deferred: rebuilding the tile grid destroys the very button whose
         # click handler is still on the call stack right now. Doing that
-        # synchronously is a real Qt crash risk (this exact pattern
-        # previously caused the app to close unexpectedly mid-stream).
-        QTimer.singleShot(0, self.reload_pack_tiles)
+        # synchronously is a real Qt crash risk. Coalesced to at most one
+        # pending rebuild: several +/- clicks (or stray clicks landing on
+        # tiles while regaining window focus after alt-tabbing to OBS/
+        # Discord mid-stream) each scheduling their own singleShot(0, ...)
+        # let overlapping rebuilds destroy widgets a still-queued click
+        # event was about to target -- that reentrant tile-replacement is
+        # what actually crashed the app mid-stream, not any single click.
+        if self._pack_tile_reload_pending:
+            return
+
+        self._pack_tile_reload_pending = True
+        QTimer.singleShot(0, self._run_scheduled_pack_tile_reload)
+
+    def _run_scheduled_pack_tile_reload(self):
+        self._pack_tile_reload_pending = False
+        self.reload_pack_tiles()
 
     def start_stream(self):
         try:
