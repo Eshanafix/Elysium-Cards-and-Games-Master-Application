@@ -43,6 +43,7 @@ from elysium.config import STALE_CARD_DATA_HOURS
 from elysium.local_card import db, paths
 from elysium.local_card.image_cache import get_cached_card_image_path
 from elysium.services.scryfall_service import ScryfallRefreshWorker
+from elysium.ui.background import run_worker, safe_callback
 from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.grid_stretch import apply_trailing_stretch
 
@@ -701,11 +702,11 @@ class CardLookupTab(QWidget):
         self.status_label.setText("Starting refresh...")
 
         self.refresh_worker = ScryfallRefreshWorker()
-        self.refresh_worker.progress.connect(self.progress_bar.setValue)
-        self.refresh_worker.status.connect(self.status_label.setText)
-        self.refresh_worker.finished_success.connect(self.refresh_finished)
-        self.refresh_worker.failed.connect(self.refresh_failed)
-        self.refresh_worker.start()
+        self.refresh_worker.progress.connect(safe_callback(self.progress_bar.setValue))
+        self.refresh_worker.status.connect(safe_callback(self.status_label.setText))
+        self.refresh_worker.finished_success.connect(safe_callback(self.refresh_finished))
+        self.refresh_worker.failed.connect(safe_callback(self.refresh_failed))
+        run_worker(self.refresh_worker)
 
     def refresh_finished(self):
         self.refresh_button.setEnabled(True)
