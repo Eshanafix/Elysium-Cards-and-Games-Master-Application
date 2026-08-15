@@ -6,7 +6,10 @@ etc.) gets added here as each phase that produces that data is built,
 rather than showing placeholder/fake values now.
 """
 
+from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -28,6 +31,10 @@ FACTORY_RESET_CONFIRMATION_PHRASE = "WIPE ALL DATA"
 
 def _format_margin(margin) -> str:
     return f"{margin * 100:.1f}%" if margin is not None else "N/A"
+
+
+def _format_money(amount) -> str:
+    return f"${amount:.2f}" if amount is not None else "N/A"
 
 
 class StatTile(QFrame):
@@ -183,17 +190,63 @@ class DashboardScreen(QWidget):
         self.admin_stats_container.setLayout(admin_stats_row)
 
         # --- Personal stats (streamer) ---
-        self.streamer_stats_title = QLabel("Your Stats This Week")
+        self.streamer_stats_title = QLabel("Your Stats")
         self.streamer_stats_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1a1a1a; margin-top: 16px; margin-bottom: 4px;")
 
-        self.streams_this_week_tile = StatTile("Streams This Week", "—")
-        self.weekly_margin_tile = StatTile("Profit Margin This Week", "—")
+        # All-time by default; the checkbox opts into truncating by a
+        # specific date range instead (start/end dates default to the
+        # last month purely as a sane starting point once enabled).
+        self.date_filter_checkbox = QCheckBox("Filter by date range (unchecked = all time)")
+        self.date_filter_checkbox.stateChanged.connect(self._on_date_filter_toggled)
 
-        streamer_stats_row = QHBoxLayout()
-        streamer_stats_row.addWidget(self.streams_this_week_tile)
-        streamer_stats_row.addWidget(self.weekly_margin_tile)
+        self.date_from_input = QDateEdit(QDate.currentDate().addMonths(-1))
+        self.date_from_input.setCalendarPopup(True)
+        self.date_from_input.setEnabled(False)
+
+        self.date_to_input = QDateEdit(QDate.currentDate())
+        self.date_to_input.setCalendarPopup(True)
+        self.date_to_input.setEnabled(False)
+
+        self.apply_date_filter_button = QPushButton("Apply")
+        self.apply_date_filter_button.clicked.connect(self._refresh_stats)
+        self.apply_date_filter_button.setEnabled(False)
+
+        date_filter_row = QHBoxLayout()
+        date_filter_row.addWidget(self.date_filter_checkbox)
+        date_filter_row.addWidget(QLabel("From:"))
+        date_filter_row.addWidget(self.date_from_input)
+        date_filter_row.addWidget(QLabel("To:"))
+        date_filter_row.addWidget(self.date_to_input)
+        date_filter_row.addWidget(self.apply_date_filter_button)
+        date_filter_row.addStretch(1)
+        self.date_filter_container = QWidget()
+        self.date_filter_container.setLayout(date_filter_row)
+
+        self.stream_count_tile = StatTile("Streams", "—")
+        self.avg_stream_gross_tile = StatTile("Avg Stream Gross", "—")
+        self.avg_stream_profit_tile = StatTile("Avg Stream Profit", "—")
+        self.streamer_profit_margin_tile = StatTile("Profit Margin", "—")
+
+        self.break_count_tile = StatTile("Breaks", "—")
+        self.avg_break_gross_tile = StatTile("Avg Break Gross", "—")
+        self.avg_break_profit_tile = StatTile("Avg Break Profit", "—")
+
+        streamer_stats_row1 = QHBoxLayout()
+        streamer_stats_row1.addWidget(self.stream_count_tile)
+        streamer_stats_row1.addWidget(self.avg_stream_gross_tile)
+        streamer_stats_row1.addWidget(self.avg_stream_profit_tile)
+        streamer_stats_row1.addWidget(self.streamer_profit_margin_tile)
+
+        streamer_stats_row2 = QHBoxLayout()
+        streamer_stats_row2.addWidget(self.break_count_tile)
+        streamer_stats_row2.addWidget(self.avg_break_gross_tile)
+        streamer_stats_row2.addWidget(self.avg_break_profit_tile)
+
+        streamer_stats_layout = QVBoxLayout()
+        streamer_stats_layout.addLayout(streamer_stats_row1)
+        streamer_stats_layout.addLayout(streamer_stats_row2)
         self.streamer_stats_container = QWidget()
-        self.streamer_stats_container.setLayout(streamer_stats_row)
+        self.streamer_stats_container.setLayout(streamer_stats_layout)
 
         self.danger_zone_label = QLabel("Danger Zone")
         self.danger_zone_label.setStyleSheet("font-weight: bold; color: #b00020; margin-top: 12px;")
@@ -220,6 +273,7 @@ class DashboardScreen(QWidget):
 
         if ROLE_STREAMER in user.roles:
             layout.addWidget(self.streamer_stats_title)
+            layout.addWidget(self.date_filter_container)
             layout.addWidget(self.streamer_stats_container)
 
         # Factory Reset is deliberately the very last thing on the screen,
@@ -260,9 +314,27 @@ class DashboardScreen(QWidget):
             self.overall_margin_tile.set_value(_format_margin(summary["overall_profit_margin"]))
 
         if ROLE_STREAMER in self.user.roles and self.user.streamer_database_name:
-            weekly = dashboard_service.get_streamer_weekly_summary(self.user.streamer_database_name)
-            self.streams_this_week_tile.set_value(str(weekly["streams_this_week"]))
-            self.weekly_margin_tile.set_value(_format_margin(weekly["profit_margin_this_week"]))
+            start_date, end_date = self._current_date_range()
+            stats = dashboard_service.get_streamer_stats(self.user.streamer_database_name, start_date, end_date)
+            self.stream_count_tile.set_value(str(stats["stream_count"]))
+            self.avg_stream_gross_tile.set_value(_format_money(stats["avg_stream_gross"]))
+            self.avg_stream_profit_tile.set_value(_format_money(stats["avg_stream_profit"]))
+            self.streamer_profit_margin_tile.set_value(_format_margin(stats["profit_margin"]))
+            self.break_count_tile.set_value(str(stats["break_count"]))
+            self.avg_break_gross_tile.set_value(_format_money(stats["avg_break_gross"]))
+            self.avg_break_profit_tile.set_value(_format_money(stats["avg_break_profit"]))
+
+    def _current_date_range(self):
+        if not self.date_filter_checkbox.isChecked():
+            return None, None
+        return self.date_from_input.date().toPython(), self.date_to_input.date().toPython()
+
+    def _on_date_filter_toggled(self, _state):
+        enabled = self.date_filter_checkbox.isChecked()
+        self.date_from_input.setEnabled(enabled)
+        self.date_to_input.setEnabled(enabled)
+        self.apply_date_filter_button.setEnabled(enabled)
+        self._refresh_stats()
 
     def _refresh_lock_status(self):
         try:

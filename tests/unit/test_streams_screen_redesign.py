@@ -134,12 +134,49 @@ def test_workspace_state_hides_holdings_and_shows_workspace(qtbot, monkeypatch):
     assert screen.pack_search_row_container.isVisible()
 
 
+# --- Workspace splitter (pack catalog <-> breaks table, user-draggable) ---
+
+
+def test_workspace_splitter_contains_pack_catalog_and_breaks_panel(qtbot, monkeypatch):
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "price_snapshot": [], "id": "stream-1",
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream)
+
+    assert screen.workspace_splitter.count() == 2
+    assert screen.workspace_splitter.widget(0) is screen.workspace_row_container
+    assert screen.workspace_splitter.widget(1) is screen.breaks_panel_container
+    assert screen.workspace_splitter.orientation() == streams.Qt.Vertical
+
+
+def test_shrinking_breaks_pane_does_not_hide_breaks_table_rows(qtbot, monkeypatch):
+    """The splitter should only change how much of the table is visible at
+    once, never make the table (and its own scrollbar) stop working."""
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "price_snapshot": [], "id": "stream-1",
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream)
+    screen.resize(900, 700)
+
+    screen.workspace_splitter.setSizes([650, 50])
+
+    assert screen.breaks_table.isVisible()
+    assert screen.breaks_table.verticalScrollBar() is not None
+
+
+def test_no_stream_state_hides_the_whole_splitter(qtbot, monkeypatch):
+    screen = make_screen(qtbot, monkeypatch, stream=None)
+    assert not screen.workspace_splitter.isVisible()
+
+
 def test_pack_search_filters_displayed_tiles(qtbot, monkeypatch):
     stream = type("S", (), {
         "date": "2026-08-08", "start_time": "now", "id": "stream-1",
         "price_snapshot": [
-            {"product_id": "p1", "product_name_at_snapshot": "Kaladesh Booster", "resolved_pack_price": Decimal("3.00")},
-            {"product_id": "p2", "product_name_at_snapshot": "Dominaria United Draft Booster", "resolved_pack_price": Decimal("4.00")},
+            {"product_id": "p1", "product_name_at_snapshot": "Kaladesh Booster", "set_code": "KLD", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Dominaria United Draft Booster", "set_code": "DMU", "resolved_pack_price": Decimal("4.00")},
         ],
     })()
 
@@ -148,6 +185,41 @@ def test_pack_search_filters_displayed_tiles(qtbot, monkeypatch):
     assert screen.pack_grid_layout.count() == 2
 
     screen.pack_search_input.setText("Kaladesh")
+    screen.reload_pack_tiles()
+
+    assert screen.pack_grid_layout.count() == 1
+
+
+def test_pack_search_matches_set_code(qtbot, monkeypatch):
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Kaladesh Booster", "set_code": "KLD", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Dominaria United Draft Booster", "set_code": "DMU", "resolved_pack_price": Decimal("4.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5, "p2": 5})
+
+    screen.pack_search_input.setText("dmu")
+    screen.reload_pack_tiles()
+
+    assert screen.pack_grid_layout.count() == 1
+
+
+def test_pack_search_tolerates_missing_set_code(qtbot, monkeypatch):
+    """Older snapshots (taken before set_code was added, or a product with
+    no set_code set) shouldn't crash the search -- just never match on it."""
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Kaladesh Booster", "resolved_pack_price": Decimal("3.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5})
+
+    screen.pack_search_input.setText("kaladesh")
     screen.reload_pack_tiles()
 
     assert screen.pack_grid_layout.count() == 1

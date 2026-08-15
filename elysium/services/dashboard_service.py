@@ -4,7 +4,7 @@ Aggregated at-a-glance stats for the Dashboard screen (streamer request:
 of just connection/lock status).
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date
 from decimal import Decimal
 
 from elysium.models.streams import STATUS_COMPLETED
@@ -50,38 +50,40 @@ def get_admin_summary() -> dict:
     }
 
 
-def _start_of_this_week(now: datetime) -> datetime:
-    days_since_monday = now.weekday()
-    return (now - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
+def _average(values: list[Decimal]) -> Decimal | None:
+    return (sum(values, Decimal("0")) / len(values)) if values else None
 
 
-def get_streamer_weekly_summary(streamer_database_name: str) -> dict:
-    """This streamer's own stream count and profit margin for the current
-    calendar week (Monday 00:00 UTC through now)."""
-    # PyMongo's default client isn't tz_aware, so every datetime read back
-    # from Mongo (stream.start_time included) comes back naive -- but it's
-    # still UTC wall-clock time underneath (BSON dates have no timezone
-    # concept at all). Comparing against an aware datetime.now(timezone.utc)
-    # crashes with "can't compare offset-naive and offset-aware datetimes";
-    # stripping tzinfo here keeps the value UTC while making it comparable.
-    week_start = _start_of_this_week(datetime.now(timezone.utc).replace(tzinfo=None))
-
+def get_streamer_stats(
+    streamer_database_name: str, start_date: date | None = None, end_date: date | None = None,
+) -> dict:
+    """This streamer's own stream/break stats -- all-time by default, or
+    truncated to [start_date, end_date] (inclusive) when either is given.
+    Dates are compared against each stream's start_time; breaks inherit
+    their parent stream's date since a break has no independent "when" a
+    streamer would filter by."""
     streams = streamer_repo.list_streams(streamer_database_name, status=STATUS_COMPLETED)
-    this_week = [s for s in streams if s.start_time and s.start_time >= week_start]
 
-    total_gross = Decimal("0")
-    total_profit = Decimal("0")
-    for stream in this_week:
-        if stream.final_stream_gross is not None:
-            total_gross += stream.final_stream_gross
-        if stream.stream_profit is not None:
-            total_profit += stream.stream_profit
+    if start_date is not None:
+        streams = [s for s in streams if s.start_time and s.start_time.date() >= start_date]
+    if end_date is not None:
+        streams = [s for s in streams if s.start_time and s.start_time.date() <= end_date]
 
-    profit_margin_this_week = (total_profit / total_gross) if total_gross else None
+    stream_grosses = [s.final_stream_gross for s in streams if s.final_stream_gross is not None]
+    stream_profits = [s.stream_profit for s in streams if s.stream_profit is not None]
+    total_gross = sum(stream_grosses, Decimal("0"))
+    total_profit = sum(stream_profits, Decimal("0"))
+
+    breaks = streamer_repo.list_breaks_for_streams(streamer_database_name, [s.id for s in streams])
+    break_grosses = [b.break_gross for b in breaks if b.break_gross is not None]
+    break_profits = [b.break_profit for b in breaks if b.break_profit is not None]
 
     return {
-        "streams_this_week": len(this_week),
-        "gross_this_week": total_gross,
-        "profit_this_week": total_profit,
-        "profit_margin_this_week": profit_margin_this_week,
+        "stream_count": len(streams),
+        "avg_stream_gross": _average(stream_grosses),
+        "avg_stream_profit": _average(stream_profits),
+        "break_count": len(breaks),
+        "avg_break_gross": _average(break_grosses),
+        "avg_break_profit": _average(break_profits),
+        "profit_margin": (total_profit / total_gross) if total_gross else None,
     }

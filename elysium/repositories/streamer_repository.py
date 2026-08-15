@@ -85,6 +85,20 @@ def list_breaks_for_stream(
     return [Break.from_document(doc) for doc in docs]
 
 
+def list_breaks_for_streams(streamer_database_name: str, stream_ids: list[str], session=None) -> list[Break]:
+    """Cross-stream break lookup (Dashboard's all-time/date-range "average
+    break gross/profit" widgets) -- unlike list_breaks_for_stream, this
+    isn't scoped to one stream, since a streamer's averages are computed
+    across every stream in the requested range at once."""
+    if not stream_ids:
+        return []
+
+    docs = get_streamer_db(streamer_database_name).breaks.find(
+        {"stream_id": {"$in": stream_ids}, "status": {"$ne": BREAK_STATUS_DELETED}}, session=session
+    )
+    return [Break.from_document(doc) for doc in docs]
+
+
 def next_break_sequence_number(streamer_database_name: str, stream_id: str, session=None) -> int:
     last = list(
         get_streamer_db(streamer_database_name).breaks

@@ -64,6 +64,7 @@ def _build_price_snapshot(streamer_database_name: str) -> tuple[list[dict], list
         snapshot.append({
             "product_id": product_id,
             "product_name_at_snapshot": product.name if product else product_id,
+            "set_code": product.set_code if product else None,
             "resolved_pack_price": price.resolved_pack_price,
             "price_source": price.resolved_price_source,
             "raw_loose_price": price.raw_loose_pack_market_price,

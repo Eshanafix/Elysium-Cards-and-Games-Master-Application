@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -279,13 +280,22 @@ class EndStreamDialog(QDialog):
 TILE_WIDTH = 120  # 25% smaller than the original 160px -- more packs visible at once
 TILE_IMAGE_WIDTH = 105
 TILE_IMAGE_HEIGHT = 146
-HOLDINGS_COLUMNS = 6
-PACK_COLUMNS = 6
+GRID_SPACING = 10
+MIN_GRID_COLUMNS = 2  # floor so a very narrow window still shows a usable grid
 TILE_NAME_HEIGHT = 46  # fixed regardless of name length, so every tile in a
                        # row lines up -- a short name ("Kamigawa...") and a
                        # long one ("Commander Legends: Battle for Baldur's
                        # Gate...") previously wrapped to different line
                        # counts and threw off every price/button row below.
+
+
+def _columns_for_width(available_width: int) -> int:
+    """How many fixed-width tiles fit side by side in available_width, used
+    to make the holdings/pack grids scale with the window instead of being
+    stuck at a hardcoded column count that's too few on a wide monitor and
+    wraps early, or too many to fit comfortably on a small one."""
+    columns = (available_width + GRID_SPACING) // (TILE_WIDTH + GRID_SPACING)
+    return max(MIN_GRID_COLUMNS, int(columns))
 
 
 class BreakProductTile(QFrame):
@@ -451,6 +461,17 @@ class StreamsScreen(QWidget):
         self._holdings_grid_stretch_state: dict = {}
         self._price_refresh_worker = None
         self._pack_tile_reload_pending = False
+        # Responsive column count (see _columns_for_width): _last_*_columns
+        # tracks what the grid was last built with so a resize only
+        # triggers an actual rebuild when the column count would change,
+        # not on every pixel of a window drag; _*_trailing_column tracks
+        # which column currently holds the trailing stretch (LLD/grid_stretch
+        # left-justify fix) so it can be reset to 0 before moving it.
+        self._regrid_pending = False
+        self._last_holdings_columns = None
+        self._last_pack_columns = None
+        self._holdings_grid_trailing_column = None
+        self._pack_grid_trailing_column = None
 
         layout = QVBoxLayout()
 
@@ -471,8 +492,7 @@ class StreamsScreen(QWidget):
         self.holdings_scroll_area.setMinimumHeight(320)
         self.holdings_grid_container = QWidget()
         self.holdings_grid_layout = QGridLayout()
-        self.holdings_grid_layout.setSpacing(10)
-        self.holdings_grid_layout.setColumnStretch(HOLDINGS_COLUMNS, 1)
+        self.holdings_grid_layout.setSpacing(GRID_SPACING)
         self.holdings_grid_container.setLayout(self.holdings_grid_layout)
         self.holdings_scroll_area.setWidget(self.holdings_grid_container)
 
@@ -536,7 +556,7 @@ class StreamsScreen(QWidget):
         pack_search_row.setContentsMargins(0, 0, 0, 0)
         pack_search_row.addWidget(QLabel("Search:"))
         self.pack_search_input = QLineEdit()
-        self.pack_search_input.setPlaceholderText("Filter your packs by name...")
+        self.pack_search_input.setPlaceholderText("Filter your packs by name or set code...")
         self.pack_search_input.textChanged.connect(self._schedule_pack_search)
         pack_search_row.addWidget(self.pack_search_input, stretch=1)
         self.pack_search_row_container.setLayout(pack_search_row)
@@ -550,8 +570,7 @@ class StreamsScreen(QWidget):
         self.pack_scroll_area.setMinimumHeight(320)
         self.pack_grid_container = QWidget()
         self.pack_grid_layout = QGridLayout()
-        self.pack_grid_layout.setSpacing(10)
-        self.pack_grid_layout.setColumnStretch(PACK_COLUMNS, 1)
+        self.pack_grid_layout.setSpacing(GRID_SPACING)
         self.pack_grid_container.setLayout(self.pack_grid_layout)
         self.pack_scroll_area.setWidget(self.pack_grid_container)
 
@@ -583,6 +602,23 @@ class StreamsScreen(QWidget):
         self.breaks_table.setHorizontalHeaderLabels(["#", "Status", "Packs Opened", "Gross", "Profit"])
         self.breaks_table.setEditTriggers(QTableWidget.NoEditTriggers)
 
+        breaks_panel_layout = QVBoxLayout()
+        breaks_panel_layout.setContentsMargins(0, 0, 0, 0)
+        breaks_panel_layout.addWidget(self.breaks_this_stream_label)
+        breaks_panel_layout.addWidget(self.breaks_table)
+        self.breaks_panel_container = QWidget()
+        self.breaks_panel_container.setLayout(breaks_panel_layout)
+
+        # Drag the handle between the pack catalog and the breaks table to
+        # trade space between them -- the table scrolls internally
+        # (QTableWidget's own vertical scrollbar) so shrinking its pane
+        # never cuts off rows, it just shows fewer at once.
+        self.workspace_splitter = QSplitter(Qt.Vertical)
+        self.workspace_splitter.addWidget(self.workspace_row_container)
+        self.workspace_splitter.addWidget(self.breaks_panel_container)
+        self.workspace_splitter.setStretchFactor(0, 3)
+        self.workspace_splitter.setStretchFactor(1, 1)
+
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
 
@@ -596,9 +632,7 @@ class StreamsScreen(QWidget):
         layout.addWidget(self.action_button_row_container)
         layout.addWidget(self.current_break_label)
         layout.addWidget(self.pack_search_row_container)
-        layout.addWidget(self.workspace_row_container)
-        layout.addWidget(self.breaks_this_stream_label)
-        layout.addWidget(self.breaks_table)
+        layout.addWidget(self.workspace_splitter, stretch=1)
         layout.addWidget(self.message_label)
 
         self.setLayout(layout)
@@ -624,7 +658,8 @@ class StreamsScreen(QWidget):
             w.setVisible(True)
 
         for w in (self.action_button_row_container, self.current_break_label, self.pack_search_row_container,
-                  self.workspace_row_container, self.breaks_this_stream_label, self.breaks_table):
+                  self.workspace_splitter, self.workspace_row_container,
+                  self.breaks_this_stream_label, self.breaks_table):
             w.setVisible(False)
 
         self.status_label.setText("No active stream.")
@@ -636,7 +671,8 @@ class StreamsScreen(QWidget):
             w.setVisible(False)
 
         for w in (self.action_button_row_container, self.current_break_label, self.pack_search_row_container,
-                  self.workspace_row_container, self.breaks_this_stream_label, self.breaks_table):
+                  self.workspace_splitter, self.workspace_row_container,
+                  self.breaks_this_stream_label, self.breaks_table):
             w.setVisible(True)
         self.start_break_button.setVisible(self.active_break is None)
         self.end_break_button.setVisible(self.active_break is not None)
@@ -656,6 +692,37 @@ class StreamsScreen(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
+    def _compute_holdings_columns(self) -> int:
+        return _columns_for_width(self.holdings_scroll_area.viewport().width())
+
+    def _compute_pack_columns(self) -> int:
+        return _columns_for_width(self.pack_scroll_area.viewport().width())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_responsive_regrid()
+
+    def _schedule_responsive_regrid(self):
+        # Debounced and coalesced the same way pack-tile reloads are
+        # (StreamsScreen._schedule_pack_tile_reload) -- resize events fire
+        # continuously while a window is being dragged, and rebuilding the
+        # tile grid on every one of them would be wasteful at best and a
+        # widget-lifetime crash risk at worst.
+        if self._regrid_pending:
+            return
+
+        self._regrid_pending = True
+        QTimer.singleShot(150, self._run_scheduled_regrid)
+
+    def _run_scheduled_regrid(self):
+        self._regrid_pending = False
+
+        if self.stream is None:
+            if self._compute_holdings_columns() != self._last_holdings_columns:
+                self.reload_holdings_preview()
+        elif self._compute_pack_columns() != self._last_pack_columns:
+            self.reload_pack_tiles()
+
     def reload_holdings_preview(self):
         self._clear_holdings_grid()
 
@@ -664,7 +731,12 @@ class StreamsScreen(QWidget):
             if r["current_packs"] > 0
         ]
 
-        columns = HOLDINGS_COLUMNS
+        columns = self._compute_holdings_columns()
+        self._last_holdings_columns = columns
+        if self._holdings_grid_trailing_column is not None:
+            self.holdings_grid_layout.setColumnStretch(self._holdings_grid_trailing_column, 0)
+        self.holdings_grid_layout.setColumnStretch(columns, 1)
+        self._holdings_grid_trailing_column = columns
         row_idx = -1
         for index, row in enumerate(rows):
             product = row["product"]
@@ -726,8 +798,17 @@ class StreamsScreen(QWidget):
         entries = self.stream.price_snapshot
         search_text = self.pack_search_input.text().strip().lower()
         if search_text:
-            entries = [e for e in entries if search_text in e["product_name_at_snapshot"].lower()]
-        columns = PACK_COLUMNS
+            entries = [
+                e for e in entries
+                if search_text in e["product_name_at_snapshot"].lower()
+                or search_text in (e.get("set_code") or "").lower()
+            ]
+        columns = self._compute_pack_columns()
+        self._last_pack_columns = columns
+        if self._pack_grid_trailing_column is not None:
+            self.pack_grid_layout.setColumnStretch(self._pack_grid_trailing_column, 0)
+        self.pack_grid_layout.setColumnStretch(columns, 1)
+        self._pack_grid_trailing_column = columns
 
         # price_snapshot doesn't carry image_url (it's a pricing snapshot,
         # not a catalog mirror), so look products up once per reload rather

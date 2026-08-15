@@ -528,21 +528,27 @@ class CardLookupTab(QWidget):
         self.selected_card_codes = set()
         self.current_limit = PAGE_SIZE
         self.total_matches = 0
+        # Column count tracking for the responsive grid (see rebuild_grid /
+        # resizeEvent / showEvent below).
+        self._last_grid_columns = None
+        self._regrid_pending = False
 
         main_layout = QVBoxLayout()
 
         self.title = QLabel("Magic Card Lookup")
 
+        # A single Refresh Card Data button lives in top_row below -- this
+        # banner used to carry its own second copy of the same button,
+        # which just meant two buttons doing the identical thing whenever
+        # the banner was visible.
         self.stale_banner = QLabel()
         self.stale_banner.setWordWrap(True)
         self.stale_banner.setVisible(False)
-        self.stale_refresh_button = QPushButton("Refresh Card Data")
-        self.stale_refresh_button.clicked.connect(self.refresh_card_data)
 
-        stale_row = QHBoxLayout()
-        stale_row.addWidget(self.stale_banner, stretch=1)
-        stale_row.addWidget(self.stale_refresh_button)
         self.stale_banner_container = QWidget()
+        stale_row = QHBoxLayout()
+        stale_row.setContentsMargins(0, 0, 0, 0)
+        stale_row.addWidget(self.stale_banner)
         self.stale_banner_container.setLayout(stale_row)
         self.stale_banner_container.setVisible(False)
 
@@ -695,7 +701,6 @@ class CardLookupTab(QWidget):
 
     def refresh_card_data(self):
         self.refresh_button.setEnabled(False)
-        self.stale_refresh_button.setEnabled(False)
 
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -710,7 +715,6 @@ class CardLookupTab(QWidget):
 
     def refresh_finished(self):
         self.refresh_button.setEnabled(True)
-        self.stale_refresh_button.setEnabled(True)
 
         self.progress_bar.setValue(100)
         self.status_label.setText("Card data and image refresh complete.")
@@ -723,7 +727,6 @@ class CardLookupTab(QWidget):
 
     def refresh_failed(self, error):
         self.refresh_button.setEnabled(True)
-        self.stale_refresh_button.setEnabled(True)
         self.status_label.setText(f"Refresh failed: {error}")
 
     def hide_progress_bar(self):
@@ -756,7 +759,6 @@ class CardLookupTab(QWidget):
         """
         self.filter_button.setStyleSheet(button_style)
         self.refresh_button.setStyleSheet(button_style)
-        self.stale_refresh_button.setStyleSheet(button_style)
 
         self.status_label.setStyleSheet(f"font-size: {int(13 * self.zoom)}px; color: white;")
 
@@ -835,14 +837,17 @@ class CardLookupTab(QWidget):
         self.current_limit += PAGE_SIZE
         self.load_cards()
 
+    def _compute_grid_columns(self) -> int:
+        card_width = int(220 * self.zoom)
+        spacing = int(30 * self.zoom)
+        available_width = self.scroll_area.viewport().width()
+        return max(1, available_width // (card_width + spacing))
+
     def rebuild_grid(self):
         self.clear_grid()
 
-        card_width = int(220 * self.zoom)
-        spacing = int(30 * self.zoom)
-
-        available_width = self.scroll_area.viewport().width()
-        columns = max(1, available_width // (card_width + spacing))
+        columns = self._compute_grid_columns()
+        self._last_grid_columns = columns
 
         row = -1
         for index, card in enumerate(self.cards):
@@ -853,8 +858,37 @@ class CardLookupTab(QWidget):
 
         apply_trailing_stretch(self.grid_layout, self._grid_stretch_state, row + 1, columns)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # This tab (both the guest-mode and logged-in-mode copy, shell.py)
+        # is constructed before the main window is ever shown, so the very
+        # first rebuild_grid() call in __init__ -> load_cards() runs against
+        # a not-yet-laid-out scroll area and undercounts columns badly (e.g.
+        # 2 instead of 6+). By the time this widget is actually shown its
+        # geometry is final, so rebuild once here rather than requiring the
+        # user to manually resize the window to "fix" it.
+        if hasattr(self, "cards") and self._compute_grid_columns() != self._last_grid_columns:
+            self.rebuild_grid()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
 
-        if hasattr(self, "cards"):
+        if not hasattr(self, "cards"):
+            return
+
+        # Debounced and coalesced the same way the Streams screen's
+        # responsive tile grid is (elysium.ui.streams) -- resize events fire
+        # continuously while a window is being dragged, and rebuilding the
+        # whole card grid synchronously on every one of them would be
+        # wasteful.
+        if self._regrid_pending:
+            return
+
+        self._regrid_pending = True
+        QTimer.singleShot(150, self._run_scheduled_regrid)
+
+    def _run_scheduled_regrid(self):
+        self._regrid_pending = False
+
+        if self._compute_grid_columns() != self._last_grid_columns:
             self.rebuild_grid()

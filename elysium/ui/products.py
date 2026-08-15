@@ -458,8 +458,8 @@ class ProductsScreen(QWidget):
         button_row.addWidget(self.edit_button)
         button_row.addWidget(self.toggle_active_button)
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Name", "Booster Type", "Packs/Box", "Active", "Set"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Name", "Booster Type", "Packs/Box", "Active", "Set", "Set Code"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
@@ -487,6 +487,7 @@ class ProductsScreen(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(str(product.packs_per_box)))
             self.table.setItem(row, 3, QTableWidgetItem("Yes" if product.is_active else "No"))
             self.table.setItem(row, 4, QTableWidgetItem(product.set_name or ""))
+            self.table.setItem(row, 5, QTableWidgetItem(product.set_code or ""))
 
         self.table.resizeColumnsToContents()
 
