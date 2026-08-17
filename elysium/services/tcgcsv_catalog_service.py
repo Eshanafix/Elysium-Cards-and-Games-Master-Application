@@ -17,6 +17,7 @@ from elysium.models.products import (
     BOOSTER_TYPE_CLASSIC,
     BOOSTER_TYPE_COLLECTOR,
     BOOSTER_TYPE_DRAFT,
+    BOOSTER_TYPE_JUMPSTART,
     BOOSTER_TYPE_PLAY,
     BOOSTER_TYPE_SET,
 )
@@ -48,25 +49,52 @@ MAGIC_CATEGORY_ID = "1"
 # in between) is now also accepted and treated as CLASSIC -- none of
 # Play/Draft/Set/Collector are historically accurate for a set that only
 # ever had one, undifferentiated booster. This is deliberately NOT the same
-# as making the qualifier word merely optional -- that over-matched other
-# single-word-prefixed products that aren't a standard booster at all, e.g.
-# "Dominaria United - Jumpstart Booster Pack" (Jumpstart is a distinct
-# product line, not a qualifier). Also matches the "Collectors" (plural)
-# variant used in some older sets, e.g. "Ravnica Allegiance - Collectors
-# Booster Pack".
+# as making the qualifier word merely optional -- an unrecognized word (e.g.
+# "Theme", "Prerelease") still doesn't match at all, so those stay excluded.
+# Also matches the "Collectors" (plural) variant used in some older sets,
+# e.g. "Ravnica Allegiance - Collectors Booster Pack".
+#
+# Verified live again (2026-08-16): "Jumpstart" and "Beyond" are two more
+# real qualifier words TCGPlayer uses for genuinely sellable single-SKU
+# products -- "Avatar: The Last Airbender - Jumpstart Booster Pack" and
+# "Universes Beyond: Assassin's Creed - Beyond Booster Pack" are both real,
+# purchasable products that streamers want to open on stream, not a
+# different product line to filter out the way Jumpstart boosters riding
+# alongside an otherwise-normal Play/Draft/Set/Collector set are (that's
+# still true for e.g. Dominaria United's Jumpstart boosters -- Jumpstart
+# itself just isn't inherently "not a real product" the way this comment
+# previously implied). "Beyond" sets have no Play/Draft/Set split of their
+# own (like a CLASSIC-era set), so it maps to CLASSIC rather than getting
+# its own type; Jumpstart boosters are a genuinely distinct product
+# (pre-built half-decks, no rarity slots) and get their own type.
 _BOOSTER_TYPE_BY_WORD = {
     "play": BOOSTER_TYPE_PLAY,
     "draft": BOOSTER_TYPE_DRAFT,
     "set": BOOSTER_TYPE_SET,
     "collector": BOOSTER_TYPE_COLLECTOR,
     "collectors": BOOSTER_TYPE_COLLECTOR,
+    "jumpstart": BOOSTER_TYPE_JUMPSTART,
+    "beyond": BOOSTER_TYPE_CLASSIC,
 }
 
+# Some products (Mystery Booster's retail/convention-exclusive listings) add
+# a bracketed and/or parenthesized annotation after "Booster Pack/Box", e.g.
+# "Mystery Booster - Booster Pack [Retail Exclusive]" or "Mystery Booster -
+# Booster Box [Convention Edition] (2019)" -- both real, single-SKU sealed
+# products, so the end-of-name anchor now tolerates one of each, in order,
+# after the core "Booster Pack/Box/Display" match. This does NOT reopen the
+# door to "Theme"/"Prerelease" variants (e.g. "Ravnica Allegiance - Theme
+# Booster Pack [Azorius]") -- those still fail to match at all, since
+# "Theme"/"Prerelease" aren't in the qualifier-word alternation above and
+# aren't a bare dash either.
 _LOOSE_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?)\s+Booster\s+Pack|-\s*Booster\s+Pack)$", re.IGNORECASE
+    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+Pack|-\s*Booster\s+Pack)"
+    r"(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
+    re.IGNORECASE,
 )
 _BOX_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?)\s+Booster\s+(?:Box|Display)|-\s*Booster\s+(?:Box|Display))$",
+    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+(?:Box|Display)"
+    r"|-\s*Booster\s+(?:Box|Display))(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )
 
@@ -80,6 +108,7 @@ DEFAULT_PACKS_PER_BOX = {
     BOOSTER_TYPE_SET: 30,
     BOOSTER_TYPE_COLLECTOR: 12,
     BOOSTER_TYPE_CLASSIC: 36,
+    BOOSTER_TYPE_JUMPSTART: 18,
 }
 
 # Verified live against tcgcsv.com (2026-08-07): a box's description text

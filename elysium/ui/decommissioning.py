@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from elysium.models.decommission import STATUS_PENDING
 from elysium.repositories import master_repository as repo
 from elysium.services import decommission_service
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class DecommissionDetailDialog(QDialog):
@@ -40,6 +41,7 @@ class DecommissionDetailDialog(QDialog):
         table = QTableWidget(len(request.snapshot_of_allocations_at_initiation), 2)
         table.setHorizontalHeaderLabels(["Product", "Current Packs"])
         table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(table)
 
         for row, entry in enumerate(request.snapshot_of_allocations_at_initiation):
             product = products_by_id.get(entry["product_id"])
@@ -116,6 +118,7 @@ class DecommissioningScreen(QWidget):
         self.table.setHorizontalHeaderLabels(["Streamer", "Status", "Initiated By", "Initiated At", "Notes"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

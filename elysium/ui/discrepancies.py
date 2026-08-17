@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from elysium.models.discrepancies import STATUS_OPEN
 from elysium.repositories import master_repository as repo
 from elysium.services import discrepancy_service
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class ResolveDiscrepancyDialog(QDialog):
@@ -73,6 +74,7 @@ class DiscrepanciesScreen(QWidget):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

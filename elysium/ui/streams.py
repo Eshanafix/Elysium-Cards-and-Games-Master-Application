@@ -42,6 +42,7 @@ from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.grid_stretch import apply_trailing_stretch
 from elysium.ui.prices import PriceRefreshWorker
 from elysium.ui.slot_tracker import SlotValueTracker
+from elysium.ui.table_scaling import make_columns_stretch
 
 BREAK_STATUS_LABELS = {
     BREAK_STATUS_ACTIVE: "In Progress",
@@ -169,6 +170,7 @@ class EndStreamDialog(QDialog):
         self.breaks_table.setHorizontalHeaderLabels(["#", "Name", "Packs Opened", "Gross", "Market Value", "Profit"])
         self.breaks_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.breaks_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.breaks_table)
 
         button_row = QHBoxLayout()
         self.edit_gross_button = QPushButton("Edit Selected Break Gross")
@@ -601,6 +603,7 @@ class StreamsScreen(QWidget):
         self.breaks_table = QTableWidget(0, 5)
         self.breaks_table.setHorizontalHeaderLabels(["#", "Status", "Packs Opened", "Gross", "Profit"])
         self.breaks_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.breaks_table)
 
         breaks_panel_layout = QVBoxLayout()
         breaks_panel_layout.setContentsMargins(0, 0, 0, 0)

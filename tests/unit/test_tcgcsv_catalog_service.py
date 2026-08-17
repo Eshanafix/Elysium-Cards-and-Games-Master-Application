@@ -10,6 +10,7 @@ from elysium.models.products import (
     BOOSTER_TYPE_CLASSIC,
     BOOSTER_TYPE_COLLECTOR,
     BOOSTER_TYPE_DRAFT,
+    BOOSTER_TYPE_JUMPSTART,
     BOOSTER_TYPE_PLAY,
     BOOSTER_TYPE_SET,
 )
@@ -90,6 +91,61 @@ RAVNICA_ALLEGIANCE_PRODUCT_NAMES = [
     "Ravnica Allegiance - Collectors Booster Pack",
 ]
 
+# Real product names from TCGCSV group 24421 ("Avatar: The Last Airbender",
+# 2025) and group 23446 ("Universes Beyond: Assassin's Creed", 2025),
+# captured live 2026-08-16. Bug report: Jumpstart and "Beyond" boosters are
+# real, purchasable single-SKU sealed products, but the search flow's
+# candidate dropdowns came back empty for them.
+AVATAR_PRODUCT_NAMES = [
+    "Avatar: The Last Airbender - Play Booster Pack",
+    "Avatar: The Last Airbender - Play Booster Display",
+    "Avatar: The Last Airbender - Play Booster Display Case",
+    "Avatar: The Last Airbender - Collector Booster Pack",
+    "Avatar: The Last Airbender - Collector Booster Display",
+    "Avatar: The Last Airbender - Collector Booster Display Case",
+    "Avatar: The Last Airbender - Jumpstart Booster 2-Pack",
+    "Avatar: The Last Airbender - Jumpstart Booster Pack",
+    "Avatar: The Last Airbender - Jumpstart Booster Display",
+    "Avatar: The Last Airbender - Jumpstart Booster Display Case",
+    "Avatar: The Last Airbender - Beginner Box",
+    "Avatar: The Last Airbender - Prerelease Pack (Aang - White)",
+    "Avatar: The Last Airbender - Collector Booster Omega Pack",
+    "Avatar: The Last Airbender - Sleeved Play Booster Pack",
+]
+
+ASSASSINS_CREED_PRODUCT_NAMES = [
+    "Universes Beyond: Assassin's Creed - Beyond Booster Pack",
+    "Universes Beyond: Assassin's Creed - Beyond Booster Display",
+    "Universes Beyond: Assassin's Creed - Beyond Booster Display Case",
+    "Universes Beyond: Assassin's Creed - Collector Booster Pack",
+    "Universes Beyond: Assassin's Creed - Collector Booster Display",
+    "Universes Beyond: Assassin's Creed - Collector Booster Display Case",
+    "Magic Minigame: Beyond Booster Blitz",
+    "Universes Beyond: Assassin's Creed - Collector Booster Omega Pack",
+]
+
+# Real product names from TCGCSV group 2571 ("Mystery Booster: Retail
+# Exclusives", abbreviation RMB1) and group 2570 ("Mystery Booster:
+# Convention Edition Exclusives", abbreviation CMB1), captured live
+# 2026-08-16. Bug report: "set code MB1 not showing up" -- TCGCSV's actual
+# "Mystery Booster Cards" group (abbreviation MB1) has zero products under
+# it at all; these two differently-abbreviated groups are where the real,
+# purchasable Mystery Booster packs/boxes live. Their names also carry a
+# bracketed/parenthesized annotation after "Booster Pack/Box" that the
+# plain end-of-name anchor didn't tolerate.
+MYSTERY_BOOSTER_RETAIL_PRODUCT_NAMES = [
+    "Mystery Booster - Booster Pack [Retail Exclusive]",
+    "Mystery Booster - Booster Box [Retail Exclusive]",
+]
+
+MYSTERY_BOOSTER_CONVENTION_PRODUCT_NAMES = [
+    "Mystery Booster - Booster Pack [Convention Edition] (2019)",
+    "Mystery Booster - Booster Box [Convention Edition] (2019)",
+    "Mystery Booster - Booster Box [Convention Edition] (2021)",
+    "Mystery Booster - Booster Pack [Convention Edition] (2021)",
+    "Mystery Booster - Booster Box Case [Convention Edition] (2021)",
+]
+
 
 def make_products(names: list[str]) -> list[dict]:
     return [
@@ -151,25 +207,45 @@ def test_dominaria_united_handles_box_wording_not_just_display():
         "Dominaria United - Set Booster Pack",
         "Dominaria United - Collector Booster Pack",
         "Dominaria United - Draft Booster Pack",
+        "Dominaria United - Jumpstart Booster Pack",
     }
     assert box_names == {
         "Dominaria United - Draft Booster Box",
         "Dominaria United - Collector Booster Display",
         "Dominaria United - Set Booster Box",
+        "Dominaria United - Jumpstart Booster Display",
     }
 
 
-def test_dominaria_united_excludes_jumpstart_and_sample_and_topper():
+def test_dominaria_united_excludes_sample_topper_bundle_and_omega():
     products = make_products(DOMINARIA_UNITED_PRODUCT_NAMES)
     loose, box = classify_sealed_candidates(products)
 
     all_names = {c.name for c in loose + box}
-    assert not any("Jumpstart" in name for name in all_names)
     assert "Dominaria United - Box Topper Pack" not in all_names
     assert "Dominaria United - Collector Booster Sample Pack" not in all_names
     assert "Dominaria United - Collector Booster Omega Pack" not in all_names
     assert "Dominaria United - Bundle" not in all_names
     assert "Dominaria United - Bundle Case" not in all_names
+
+
+def test_dominaria_united_includes_jumpstart_pack_and_display_as_jumpstart_type():
+    """Jumpstart boosters are a real, purchasable single-SKU sealed product
+    -- they should show up as candidates (for a streamer who actually wants
+    to open them), classified as their own JUMPSTART type. "Jumpstart
+    Booster Box Case" (a bulk case) and "Jumpstart Booster 2-Pack" (a
+    bundle, not "Booster Pack") must still be excluded."""
+    products = make_products(DOMINARIA_UNITED_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    loose_by_name = {c.name: c for c in loose}
+    box_by_name = {c.name: c for c in box}
+
+    assert loose_by_name["Dominaria United - Jumpstart Booster Pack"].booster_type == BOOSTER_TYPE_JUMPSTART
+    assert box_by_name["Dominaria United - Jumpstart Booster Display"].booster_type == BOOSTER_TYPE_JUMPSTART
+
+    all_names = {c.name for c in loose + box}
+    assert "Dominaria United - Jumpstart Booster Box Case" not in all_names
 
 
 def test_kaladesh_pre_2020_set_has_no_qualifier_word_but_still_classifies():
@@ -225,7 +301,84 @@ def test_derive_booster_type_from_name():
     assert derive_booster_type_from_name("Dominaria United - Collector Booster Display") == BOOSTER_TYPE_COLLECTOR
     assert derive_booster_type_from_name("Dominaria United - Bundle") is None
     assert derive_booster_type_from_name("Kaladesh - Booster Pack") == BOOSTER_TYPE_CLASSIC
-    assert derive_booster_type_from_name("Dominaria United - Jumpstart Booster Pack") is None
+    assert derive_booster_type_from_name("Dominaria United - Jumpstart Booster Pack") == BOOSTER_TYPE_JUMPSTART
+    assert derive_booster_type_from_name(
+        "Universes Beyond: Assassin's Creed - Beyond Booster Pack"
+    ) == BOOSTER_TYPE_CLASSIC
+
+
+def test_avatar_jumpstart_and_sleeved_are_included_others_excluded():
+    products = make_products(AVATAR_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    loose_names = {c.name for c in loose}
+    box_names = {c.name for c in box}
+
+    assert loose_names == {
+        "Avatar: The Last Airbender - Play Booster Pack",
+        "Avatar: The Last Airbender - Collector Booster Pack",
+        "Avatar: The Last Airbender - Jumpstart Booster Pack",
+        "Avatar: The Last Airbender - Sleeved Play Booster Pack",
+    }
+    assert box_names == {
+        "Avatar: The Last Airbender - Play Booster Display",
+        "Avatar: The Last Airbender - Collector Booster Display",
+        "Avatar: The Last Airbender - Jumpstart Booster Display",
+    }
+    # "Jumpstart Booster 2-Pack" is a bundle, not a single "Booster Pack".
+    all_names = loose_names | box_names
+    assert "Avatar: The Last Airbender - Jumpstart Booster 2-Pack" not in all_names
+    assert "Avatar: The Last Airbender - Beginner Box" not in all_names
+    assert "Avatar: The Last Airbender - Collector Booster Omega Pack" not in all_names
+
+
+def test_assassins_creed_beyond_booster_included_as_classic():
+    products = make_products(ASSASSINS_CREED_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    loose_names = {c.name for c in loose}
+    box_names = {c.name for c in box}
+
+    assert loose_names == {
+        "Universes Beyond: Assassin's Creed - Beyond Booster Pack",
+        "Universes Beyond: Assassin's Creed - Collector Booster Pack",
+    }
+    assert box_names == {
+        "Universes Beyond: Assassin's Creed - Beyond Booster Display",
+        "Universes Beyond: Assassin's Creed - Collector Booster Display",
+    }
+
+    by_name = {c.name: c for c in loose}
+    assert by_name["Universes Beyond: Assassin's Creed - Beyond Booster Pack"].booster_type == BOOSTER_TYPE_CLASSIC
+    assert "Magic Minigame: Beyond Booster Blitz" not in (loose_names | box_names)
+
+
+def test_mystery_booster_retail_bracket_suffix_is_tolerated():
+    products = make_products(MYSTERY_BOOSTER_RETAIL_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    assert {c.name for c in loose} == {"Mystery Booster - Booster Pack [Retail Exclusive]"}
+    assert {c.name for c in box} == {"Mystery Booster - Booster Box [Retail Exclusive]"}
+    assert loose[0].booster_type == BOOSTER_TYPE_CLASSIC
+
+
+def test_mystery_booster_convention_bracket_and_paren_suffix_is_tolerated():
+    products = make_products(MYSTERY_BOOSTER_CONVENTION_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    loose_names = {c.name for c in loose}
+    box_names = {c.name for c in box}
+
+    assert loose_names == {
+        "Mystery Booster - Booster Pack [Convention Edition] (2019)",
+        "Mystery Booster - Booster Pack [Convention Edition] (2021)",
+    }
+    assert box_names == {
+        "Mystery Booster - Booster Box [Convention Edition] (2019)",
+        "Mystery Booster - Booster Box [Convention Edition] (2021)",
+    }
+    # The bulk case variant must still be excluded.
+    assert "Mystery Booster - Booster Box Case [Convention Edition] (2021)" not in (loose_names | box_names)
 
 
 def test_parse_packs_per_box_from_foundations_style_text():
@@ -313,3 +466,7 @@ def test_suggest_product_name_classic_has_no_qualifier_word():
 
 def test_default_packs_per_box_classic():
     assert default_packs_per_box(BOOSTER_TYPE_CLASSIC) == 36
+
+
+def test_default_packs_per_box_jumpstart():
+    assert default_packs_per_box(BOOSTER_TYPE_JUMPSTART) == 18

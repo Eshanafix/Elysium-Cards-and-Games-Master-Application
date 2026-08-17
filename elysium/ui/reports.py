@@ -28,6 +28,7 @@ from elysium.exports.report_definitions import available_reports
 from elysium.models.users import ROLE_ADMIN
 from elysium.repositories import master_repository as repo
 from elysium.services import report_service
+from elysium.ui.table_scaling import make_columns_stretch
 from elysium.ui.background import run_worker, safe_callback
 
 
@@ -103,6 +104,7 @@ class ReportsScreen(QWidget):
 
         self.table = QTableWidget(0, 0)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

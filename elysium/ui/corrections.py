@@ -33,6 +33,7 @@ from elysium.repositories import streamer_repository as streamer_repo
 from elysium.services import correction_service
 from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.numeric_inputs import SelectAllDoubleSpinBox, SelectAllSpinBox
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class ShortageChoiceDialog(QDialog):
@@ -93,6 +94,7 @@ class CorrectBreakDialog(QDialog):
 
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Product", "Original Qty", "New Qty", "Historical Price"])
+        make_columns_stretch(self.table)
         for line in break_obj.pack_lines:
             self._add_row(line["product_id"], line["quantity"], price_editable=False)
         layout.addWidget(self.table)
@@ -254,6 +256,7 @@ class StreamCorrectionsScreen(QWidget):
         self.streams_table.setHorizontalHeaderLabels(["Date", "Final Gross", "Stream Profit", "Corrections"])
         self.streams_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.streams_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.streams_table)
         self.streams_table.itemSelectionChanged.connect(self.on_stream_selected)
         layout.addWidget(self.streams_table)
 
@@ -269,6 +272,7 @@ class StreamCorrectionsScreen(QWidget):
         self.breaks_table.setHorizontalHeaderLabels(["#", "Name", "Status", "Break Gross"])
         self.breaks_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.breaks_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.breaks_table)
         layout.addWidget(self.breaks_table)
 
         break_button_row = QHBoxLayout()

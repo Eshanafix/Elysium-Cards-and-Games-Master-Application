@@ -22,6 +22,8 @@ from elysium.models.users import ROLE_STREAMER
 from elysium.repositories import master_repository as repo
 from elysium.services import inventory_service, product_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
+from elysium.ui.numeric_table_item import NumericTableWidgetItem
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class ClaimInventoryDialog(QDialog):
@@ -139,6 +141,7 @@ class MyInventoryScreen(QWidget):
         self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price", "Market Value"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
@@ -154,6 +157,13 @@ class MyInventoryScreen(QWidget):
 
     def reload(self):
         self._rows = inventory_service.get_streamer_inventory_view(self.current_user.streamer_database_name)
+        # Sorting reorders the table's visual rows without touching
+        # self._rows -- selected_row() looks the selection up by product id
+        # (stored on the row's own item) instead of a positional index into
+        # this list, so it still resolves to the right row after a sort.
+        self._rows_by_id = {row["product"].id: row for row in self._rows}
+
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._rows))
 
         for row_index, row in enumerate(self._rows):
@@ -161,12 +171,19 @@ class MyInventoryScreen(QWidget):
             price = row["resolved_pack_price"]
             market_value = (price * row["current_packs"]) if price is not None else None
 
-            self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row["current_packs"])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(f"${price:.2f}" if price is not None else row["price_status"]))
-            self.table.setItem(row_index, 3, QTableWidgetItem(f"${market_value:.2f}" if market_value is not None else ""))
+            name_item = QTableWidgetItem(product.name)
+            name_item.setData(1000, product.id)
+            self.table.setItem(row_index, 0, name_item)
+            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(
+                f"${price:.2f}" if price is not None else row["price_status"], price,
+            ))
+            self.table.setItem(row_index, 3, NumericTableWidgetItem(
+                f"${market_value:.2f}" if market_value is not None else "", market_value,
+            ))
 
         self.table.resizeColumnsToContents()
+        self.table.setSortingEnabled(True)
 
     def selected_row(self) -> dict | None:
         rows = self.table.selectionModel().selectedRows()
@@ -174,7 +191,8 @@ class MyInventoryScreen(QWidget):
         if not rows:
             return None
 
-        return self._rows[rows[0].row()]
+        product_id = self.table.item(rows[0].row(), 0).data(1000)
+        return self._rows_by_id.get(product_id)
 
     def claim_inventory(self):
         dialog = ClaimInventoryDialog(self)
@@ -266,6 +284,7 @@ class StreamerInventoryAdminScreen(QWidget):
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         layout.addWidget(title)
         layout.addWidget(QLabel("Streamer:"))
@@ -284,6 +303,7 @@ class StreamerInventoryAdminScreen(QWidget):
             return
 
         self._rows = inventory_service.get_streamer_inventory_view(streamer.streamer_database_name)
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._rows))
 
         for row_index, row in enumerate(self._rows):
@@ -291,7 +311,10 @@ class StreamerInventoryAdminScreen(QWidget):
             price = row["resolved_pack_price"]
 
             self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row["current_packs"])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(f"${price:.2f}" if price is not None else row["price_status"]))
+            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(
+                f"${price:.2f}" if price is not None else row["price_status"], price,
+            ))
 
         self.table.resizeColumnsToContents()
+        self.table.setSortingEnabled(True)

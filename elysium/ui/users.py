@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from elysium.models.users import ROLE_ADMIN, ROLE_STREAMER
 from elysium.repositories import master_repository as repo
 from elysium.services import auth_service, decommission_service
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class CreateUserDialog(QDialog):
@@ -118,6 +119,7 @@ class UsersScreen(QWidget):
         self.table.setHorizontalHeaderLabels(["Username", "Roles", "Active", "Decommission Status"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

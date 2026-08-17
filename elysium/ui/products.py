@@ -20,7 +20,6 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -41,8 +40,10 @@ from elysium.models.products import BOOSTER_TYPES, Product
 from elysium.services import product_service, sealed_image_cache_service, tcgcsv_catalog_service
 from elysium.ui.background import run_worker, safe_callback
 from elysium.ui.dialog_sizing import clamp_to_screen
+from elysium.ui.no_scroll_combo import NoScrollComboBox
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.prices import PriceRefreshWorker
+from elysium.ui.table_scaling import make_columns_stretch
 
 SEARCH_DEBOUNCE_MS = 250
 
@@ -96,10 +97,10 @@ class SetSearchPanel(QWidget):
 
         self.selected_set_label = QLabel("No set selected.")
 
-        self.loose_combo = QComboBox()
+        self.loose_combo = NoScrollComboBox()
         self.loose_combo.currentIndexChanged.connect(self.on_loose_changed)
 
-        self.box_combo = QComboBox()
+        self.box_combo = NoScrollComboBox()
         self.box_combo.currentIndexChanged.connect(self.on_box_changed)
 
         layout.addLayout(top_row)
@@ -180,6 +181,18 @@ class SetSearchPanel(QWidget):
         if self._loose_candidates:
             self.loose_combo.setCurrentIndex(0)
             self.on_loose_changed(0)
+        elif not self._box_candidates:
+            # Some TCGCSV groups are real but genuinely empty (e.g.
+            # "Mystery Booster Cards" / MB1 has zero products listed under
+            # it -- the actual sellable Mystery Booster packs/boxes are
+            # catalogued under separate, differently-abbreviated groups).
+            # Silently leaving both dropdowns empty here reads as a bug;
+            # naming the likely fix is more useful than nothing.
+            self.selected_set_label.setText(
+                f"Selected set: {group['name']} -- no sealed pack/box products found in this TCGPlayer "
+                "group. If there's more than one search result for this set name, try a different one "
+                "(e.g. a set can have separate \"Retail\" and \"Convention\" groups)."
+            )
 
     def on_loose_changed(self, index: int):
         if index < 0 or not self._loose_candidates:
@@ -246,8 +259,11 @@ class ProductDialog(QDialog):
         # product (set, booster type, packs per box) so a much bigger
         # results list fits without the dialog getting unreasonably tall;
         # edit mode still shows every field since fixing a wrong TCGCSV
-        # mapping/image after the fact needs full visibility.
-        clamp_to_screen(self, 460, 520 if product is None else 700)
+        # mapping/image after the fact needs full visibility. 520 wasn't
+        # actually tall enough to show the whole search panel + review
+        # fields without scrolling -- clamp_to_screen still caps this to
+        # whatever actually fits on a smaller monitor.
+        clamp_to_screen(self, 520, 780 if product is None else 700)
         self._name_was_auto_suggested = product is None
 
         # Fields go in a scroll area and the OK/Cancel buttons stay pinned
@@ -274,7 +290,7 @@ class ProductDialog(QDialog):
         self.set_code_input = QLineEdit((product.set_code or "") if product else "")
         self.set_code_input.setPlaceholderText("Set code")
 
-        self.booster_type_combo = QComboBox()
+        self.booster_type_combo = NoScrollComboBox()
         self.booster_type_combo.addItems(BOOSTER_TYPES)
         if product:
             self.booster_type_combo.setCurrentText(product.booster_type)
@@ -370,6 +386,11 @@ class ProductDialog(QDialog):
 
         self.setLayout(outer_layout)
 
+        if self.search_panel is not None:
+            # So an admin can start typing a set name immediately instead
+            # of having to click into the search bar first.
+            self.search_panel.search_input.setFocus()
+
     def _mark_name_as_manually_edited(self):
         self._name_was_auto_suggested = False
 
@@ -462,6 +483,7 @@ class ProductsScreen(QWidget):
         self.table.setHorizontalHeaderLabels(["Name", "Booster Type", "Packs/Box", "Active", "Set", "Set Code"])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

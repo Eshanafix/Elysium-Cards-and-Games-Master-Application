@@ -25,6 +25,8 @@ from elysium.models.prices import STATUS_AMBIGUOUS, STATUS_UNRESOLVED
 from elysium.repositories import price_repository as price_repo
 from elysium.services import product_service, pricing_service
 from elysium.ui.background import run_worker, safe_callback
+from elysium.ui.numeric_table_item import NumericTableWidgetItem
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class PriceRefreshWorker(QThread):
@@ -107,6 +109,7 @@ class PricesScreen(QWidget):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
@@ -129,19 +132,37 @@ class PricesScreen(QWidget):
         self._rows = []
         for product_id, product in products.items():
             self._rows.append((product, prices.get(product_id)))
+        # Sorting reorders the table's visual rows without touching
+        # self._rows -- selected_row() looks the selection up by product id
+        # (stored on the row's own item) instead of a positional index into
+        # this list, so it still resolves to the right row after a sort.
+        self._rows_by_id = {product.id: (product, price) for product, price in self._rows}
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._rows))
 
         for row, (product, price) in enumerate(self._rows):
-            self.table.setItem(row, 0, QTableWidgetItem(product.name))
-            self.table.setItem(row, 1, QTableWidgetItem(self._fmt(price.raw_loose_pack_market_price if price else None)))
-            self.table.setItem(row, 2, QTableWidgetItem(self._fmt(price.raw_box_market_price if price else None)))
-            self.table.setItem(row, 3, QTableWidgetItem(self._fmt(price.resolved_pack_price if price else None)))
+            name_item = QTableWidgetItem(product.name)
+            name_item.setData(1000, product.id)
+            self.table.setItem(row, 0, name_item)
+            self.table.setItem(row, 1, NumericTableWidgetItem(
+                self._fmt(price.raw_loose_pack_market_price if price else None),
+                price.raw_loose_pack_market_price if price else None,
+            ))
+            self.table.setItem(row, 2, NumericTableWidgetItem(
+                self._fmt(price.raw_box_market_price if price else None),
+                price.raw_box_market_price if price else None,
+            ))
+            self.table.setItem(row, 3, NumericTableWidgetItem(
+                self._fmt(price.resolved_pack_price if price else None),
+                price.resolved_pack_price if price else None,
+            ))
             self.table.setItem(row, 4, QTableWidgetItem(price.resolved_price_source if price else ""))
             self.table.setItem(row, 5, QTableWidgetItem(price.price_status if price else "UNRESOLVED"))
             self.table.setItem(row, 6, QTableWidgetItem(str(price.last_successful_refresh_at) if price and price.last_successful_refresh_at else ""))
 
         self.table.resizeColumnsToContents()
+        self.table.setSortingEnabled(True)
 
     @staticmethod
     def _fmt(value) -> str:
@@ -153,7 +174,8 @@ class PricesScreen(QWidget):
         if not rows:
             return None
 
-        return self._rows[rows[0].row()]
+        product_id = self.table.item(rows[0].row(), 0).data(1000)
+        return self._rows_by_id.get(product_id)
 
     def start_refresh(self):
         self.refresh_button.setEnabled(False)

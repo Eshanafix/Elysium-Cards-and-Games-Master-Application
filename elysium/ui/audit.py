@@ -32,6 +32,7 @@ from elysium.exports.csv_exporter import CsvExportWorker
 from elysium.repositories import master_repository as repo
 from elysium.services import audit_service
 from elysium.ui.background import run_worker, safe_callback
+from elysium.ui.table_scaling import make_columns_stretch
 
 _ACTION_TYPES = [
     "MASTER_INVENTORY_ADDED", "MASTER_INVENTORY_REMOVED",
@@ -135,6 +136,7 @@ class AuditHistoryScreen(QWidget):
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)

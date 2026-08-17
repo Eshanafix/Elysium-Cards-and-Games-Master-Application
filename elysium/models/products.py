@@ -16,9 +16,15 @@ BOOSTER_TYPE_SET = "SET"
 BOOSTER_TYPE_COLLECTOR = "COLLECTOR"
 BOOSTER_TYPE_PLAY = "PLAY"
 BOOSTER_TYPE_CLASSIC = "CLASSIC"
+# Jumpstart boosters are a genuinely distinct product line (pre-built
+# half-decks, no rarity slots) sold alongside a set's regular boosters --
+# not another qualifier on the same Play/Draft/Set/Collector spectrum, so it
+# gets its own type rather than being folded into CLASSIC.
+BOOSTER_TYPE_JUMPSTART = "JUMPSTART"
 
 BOOSTER_TYPES = [
     BOOSTER_TYPE_DRAFT, BOOSTER_TYPE_SET, BOOSTER_TYPE_COLLECTOR, BOOSTER_TYPE_PLAY, BOOSTER_TYPE_CLASSIC,
+    BOOSTER_TYPE_JUMPSTART,
 ]
 
 

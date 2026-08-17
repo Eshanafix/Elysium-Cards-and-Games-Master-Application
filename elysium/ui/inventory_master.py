@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 from elysium.models.users import ROLE_ADMIN
 from elysium.services import inventory_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
+from elysium.ui.numeric_table_item import NumericTableWidgetItem
+from elysium.ui.table_scaling import make_columns_stretch
 
 
 class AddInventoryDialog(QDialog):
@@ -126,6 +128,7 @@ class MasterInventoryScreen(QWidget):
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        make_columns_stretch(self.table)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
@@ -141,6 +144,13 @@ class MasterInventoryScreen(QWidget):
 
     def reload(self):
         self._rows = inventory_service.get_master_inventory_view()
+        # Sorting reorders the table's visual rows without touching
+        # self._rows -- selected_row() looks the selection up by product id
+        # (stored on the row's own item) instead of a positional index into
+        # this list, so it still resolves to the right row after a sort.
+        self._rows_by_id = {row["product"].id: row for row in self._rows}
+
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._rows))
 
         for row_index, row in enumerate(self._rows):
@@ -153,15 +163,22 @@ class MasterInventoryScreen(QWidget):
                 for a in row["allocations"] if a["current_packs"] != 0
             )
 
-            self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
-            self.table.setItem(row_index, 1, QTableWidgetItem(str(row["total_packs"])))
-            self.table.setItem(row_index, 2, QTableWidgetItem(str(row["unassigned_packs"])))
-            self.table.setItem(row_index, 3, QTableWidgetItem(str(row["assigned_packs"])))
-            self.table.setItem(row_index, 4, QTableWidgetItem(f"${price:.2f}" if price is not None else row["price_status"]))
-            self.table.setItem(row_index, 5, QTableWidgetItem(f"${market_value:.2f}" if market_value is not None else ""))
+            name_item = QTableWidgetItem(product.name)
+            name_item.setData(1000, product.id)
+            self.table.setItem(row_index, 0, name_item)
+            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["total_packs"]), row["total_packs"]))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(str(row["unassigned_packs"]), row["unassigned_packs"]))
+            self.table.setItem(row_index, 3, NumericTableWidgetItem(str(row["assigned_packs"]), row["assigned_packs"]))
+            self.table.setItem(row_index, 4, NumericTableWidgetItem(
+                f"${price:.2f}" if price is not None else row["price_status"], price,
+            ))
+            self.table.setItem(row_index, 5, NumericTableWidgetItem(
+                f"${market_value:.2f}" if market_value is not None else "", market_value,
+            ))
             self.table.setItem(row_index, 6, QTableWidgetItem(allocation_summary))
 
         self.table.resizeColumnsToContents()
+        self.table.setSortingEnabled(True)
 
     def selected_row(self) -> dict | None:
         rows = self.table.selectionModel().selectedRows()
@@ -169,7 +186,8 @@ class MasterInventoryScreen(QWidget):
         if not rows:
             return None
 
-        return self._rows[rows[0].row()]
+        product_id = self.table.item(rows[0].row(), 0).data(1000)
+        return self._rows_by_id.get(product_id)
 
     def add_inventory(self):
         if ROLE_ADMIN not in self.current_user.roles:
