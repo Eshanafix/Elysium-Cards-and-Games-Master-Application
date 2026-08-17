@@ -55,6 +55,18 @@ NAV_APP_UPDATES = "App Updates"
 NAV_LOGOUT = "Logout"
 
 
+def _fit_nav_list_width(nav_list: QListWidget) -> None:
+    """A hardcoded 160px assumed a particular font/DPI -- fine on the
+    monitor this was built on, but at a different effective UI scale (a
+    smaller laptop screen, different OS-level display scaling, etc.) the
+    longer labels ("Master Inventory", "Shared Sealed Prices") don't fit
+    and get truncated mid-word instead. Size to whatever's actually needed
+    for the widest item currently in the list, at the list's real font."""
+    metrics = nav_list.fontMetrics()
+    widest = max((metrics.horizontalAdvance(nav_list.item(i).text()) for i in range(nav_list.count())), default=0)
+    nav_list.setFixedWidth(widest + 50)
+
+
 class GuestShell(QWidget):
     def __init__(self, on_login_requested):
         super().__init__()
@@ -64,9 +76,9 @@ class GuestShell(QWidget):
         layout = QHBoxLayout()
 
         self.nav_list = QListWidget()
-        self.nav_list.setMaximumWidth(160)
         self.nav_list.addItem(QListWidgetItem(NAV_CARD_LOOKUP))
         self.nav_list.addItem(QListWidgetItem(NAV_LOGIN))
+        _fit_nav_list_width(self.nav_list)
         self.nav_list.currentTextChanged.connect(self.on_nav_changed)
 
         self.content = QStackedWidget()
@@ -100,7 +112,6 @@ class AppShell(QWidget):
         layout = QHBoxLayout()
 
         self.nav_list = QListWidget()
-        self.nav_list.setMaximumWidth(160)
 
         # Dashboard always first, then ordered by actual usage frequency.
         # Streamers now get read-only Master Inventory visibility too (LLD
@@ -141,6 +152,7 @@ class AppShell(QWidget):
         for label in nav_items:
             self.nav_list.addItem(QListWidgetItem(label))
 
+        _fit_nav_list_width(self.nav_list)
         self.nav_list.currentTextChanged.connect(self.on_nav_changed)
 
         self.content = QStackedWidget()
