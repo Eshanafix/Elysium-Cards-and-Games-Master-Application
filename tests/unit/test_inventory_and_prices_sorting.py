@@ -82,6 +82,19 @@ def test_my_inventory_screen_selection_survives_sort(qtbot, monkeypatch):
     assert selected["product"].id == "cheap"
 
 
+def test_prices_screen_preserves_manual_column_width_across_reload(qtbot, monkeypatch):
+    monkeypatch.setattr(prices.product_service, "list_products", lambda: [FakeProduct("p1", "Foundations Play Booster")])
+    monkeypatch.setattr(prices.price_repo, "list_all_current_prices", lambda: {})
+
+    screen = prices.PricesScreen(FakeUser())
+    qtbot.addWidget(screen)
+
+    screen.table.setColumnWidth(0, 400)
+    screen.reload_prices()  # e.g. after a refresh or manual price entry
+
+    assert screen.table.columnWidth(0) == 400
+
+
 def test_master_inventory_screen_selection_survives_sort(qtbot, monkeypatch):
     rows = [
         {

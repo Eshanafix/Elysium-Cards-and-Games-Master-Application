@@ -78,6 +78,7 @@ class PricesScreen(QWidget):
 
         self.current_user = current_user
         self.refresh_worker = None
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -161,7 +162,12 @@ class PricesScreen(QWidget):
             self.table.setItem(row, 5, QTableWidgetItem(price.price_status if price else "UNRESOLVED"))
             self.table.setItem(row, 6, QTableWidgetItem(str(price.last_successful_refresh_at) if price and price.last_successful_refresh_at else ""))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- a refresh or manual/previous-price entry
+        # calls reload_prices() again, and resizing on every call would keep
+        # undoing a manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
         self.table.setSortingEnabled(True)
 
     @staticmethod

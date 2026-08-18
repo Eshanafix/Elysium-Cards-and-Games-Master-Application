@@ -122,6 +122,7 @@ class MyInventoryScreen(QWidget):
 
         self.current_user = current_user
         self._rows = []
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -182,7 +183,12 @@ class MyInventoryScreen(QWidget):
                 f"${market_value:.2f}" if market_value is not None else "", market_value,
             ))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- claiming/returning inventory calls reload()
+        # again right after, and resizeColumnsToContents() on every call
+        # would silently undo a column width the user had just dragged wider.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
         self.table.setSortingEnabled(True)
 
     def selected_row(self) -> dict | None:
@@ -269,6 +275,7 @@ class StreamerInventoryAdminScreen(QWidget):
 
         self.current_user = current_user
         self._rows = []
+        self._columns_sized = False
         self._streamers = [u for u in repo.list_users() if ROLE_STREAMER in u.roles]
 
         layout = QVBoxLayout()
@@ -316,5 +323,11 @@ class StreamerInventoryAdminScreen(QWidget):
                 f"${price:.2f}" if price is not None else row["price_status"], price,
             ))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- the streamer dropdown calls reload() every
+        # time it's changed, and resizeColumnsToContents() on every call
+        # would silently undo a column width the user had just dragged wider
+        # (e.g. "why do I have to keep resizing the Product column").
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
         self.table.setSortingEnabled(True)

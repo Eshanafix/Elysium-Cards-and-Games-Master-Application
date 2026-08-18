@@ -101,6 +101,7 @@ class MasterInventoryScreen(QWidget):
 
         self.current_user = current_user
         self._rows = []
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -177,7 +178,11 @@ class MasterInventoryScreen(QWidget):
             ))
             self.table.setItem(row_index, 6, QTableWidgetItem(allocation_summary))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- Add/Reduce Inventory call reload() again,
+        # and resizing on every call would keep undoing a manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
         self.table.setSortingEnabled(True)
 
     def selected_row(self) -> dict | None:

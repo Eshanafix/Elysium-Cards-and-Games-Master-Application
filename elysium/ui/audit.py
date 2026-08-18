@@ -83,6 +83,7 @@ class AuditHistoryScreen(QWidget):
 
         self.current_user = current_user
         self.events: list[dict] = []
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -195,7 +196,11 @@ class AuditHistoryScreen(QWidget):
                     value = value.to_decimal()
                 self.table.setItem(row, col, QTableWidgetItem("" if value is None else str(value)))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- Run/filter changes call reload() repeatedly,
+        # and resizing on every call would keep undoing a manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
         self.show_message(f"{len(self.events)} event(s).", error=False)
 
     def selected_event(self) -> dict | None:

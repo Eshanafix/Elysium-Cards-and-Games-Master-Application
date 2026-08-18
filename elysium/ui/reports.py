@@ -49,6 +49,13 @@ class ReportsScreen(QWidget):
         self.current_columns: list[str] = []
         self.current_rows: list[dict] = []
         self._export_worker = None
+        # Which report's columns the table was last auto-sized for -- unlike
+        # every other screen's table, a different report can have an
+        # entirely different column set, so "only auto-size once, ever"
+        # would leave a genuinely new report's columns using leftover
+        # widths from whatever report ran before it. Re-running the *same*
+        # report (e.g. just changing filters) still preserves a manual resize.
+        self._columns_sized_for_report_key = None
 
         layout = QVBoxLayout()
 
@@ -209,7 +216,9 @@ class ReportsScreen(QWidget):
                 value = row.get(column)
                 self.table.setItem(row_idx, col_idx, QTableWidgetItem("" if value is None else str(value)))
 
-        self.table.resizeColumnsToContents()
+        if self._columns_sized_for_report_key != definition.key:
+            self.table.resizeColumnsToContents()
+            self._columns_sized_for_report_key = definition.key
         self.table.resizeRowsToContents()
         self.show_message(f"{len(rows)} row(s).", error=False)
 

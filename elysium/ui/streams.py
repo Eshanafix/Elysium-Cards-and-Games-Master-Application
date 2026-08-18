@@ -160,6 +160,7 @@ class EndStreamDialog(QDialog):
         self.stream = stream
         self.streamer_database_name = streamer_database_name
         self.product_names = {entry["product_id"]: entry["product_name_at_snapshot"] for entry in stream.price_snapshot}
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -212,7 +213,12 @@ class EndStreamDialog(QDialog):
             self.breaks_table.setItem(row, 4, QTableWidgetItem(f"${b.total_pack_market_value:.2f}"))
             self.breaks_table.setItem(row, 5, QTableWidgetItem(f"${b.break_profit:.2f}" if b.break_profit is not None else ""))
 
-        self.breaks_table.resizeColumnsToContents()
+        # Only auto-size once -- Delete/Edit Break call reload() again while
+        # this dialog stays open, and resizing on every call would keep
+        # undoing a manually-widened column.
+        if not self._columns_sized:
+            self.breaks_table.resizeColumnsToContents()
+            self._columns_sized = True
         self.breaks_table.resizeRowsToContents()
 
         self.summary_label.setText(
@@ -457,6 +463,7 @@ class StreamsScreen(QWidget):
         self.current_user = current_user
         self.stream = None
         self.active_break = None
+        self._breaks_columns_sized = False
         self._breaks: list = []
         self._product_names: dict = {}
         self._pack_grid_stretch_state: dict = {}
@@ -859,7 +866,12 @@ class StreamsScreen(QWidget):
             self.breaks_table.setItem(row, 3, QTableWidgetItem(f"${b.break_gross:.2f}" if b.break_gross is not None else ""))
             self.breaks_table.setItem(row, 4, QTableWidgetItem(f"${b.break_profit:.2f}" if b.break_profit is not None else ""))
 
-        self.breaks_table.resizeColumnsToContents()
+        # Only auto-size once -- each break start/end calls this again during
+        # a live stream, and resizing on every call would keep undoing a
+        # manually-widened column.
+        if not self._breaks_columns_sized:
+            self.breaks_table.resizeColumnsToContents()
+            self._breaks_columns_sized = True
         self.breaks_table.resizeRowsToContents()
 
     def on_add_pack(self, product_id: str):

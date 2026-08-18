@@ -461,6 +461,7 @@ class ProductsScreen(QWidget):
         super().__init__()
 
         self.current_user = current_user
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -511,7 +512,12 @@ class ProductsScreen(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(product.set_name or ""))
             self.table.setItem(row, 5, QTableWidgetItem(product.set_code or ""))
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- creating/editing/toggling a product calls
+        # reload_products() again, and resizing on every call would keep
+        # undoing a manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
 
     def selected_product(self) -> Product | None:
         rows = self.table.selectionModel().selectedRows()

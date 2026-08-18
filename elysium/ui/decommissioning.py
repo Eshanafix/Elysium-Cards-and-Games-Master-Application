@@ -95,6 +95,7 @@ class DecommissioningScreen(QWidget):
 
         self.current_user = current_user
         self.requests = []
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -149,7 +150,12 @@ class DecommissioningScreen(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(request.notes or ""))
             self.table.item(row, 0).setData(1000, request.id)
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- the "Show all" checkbox calls reload()
+        # again, and resizing on every call would keep undoing a
+        # manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
 
     def selected_request(self):
         rows = self.table.selectionModel().selectedRows()

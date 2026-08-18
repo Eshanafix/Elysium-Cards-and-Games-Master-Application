@@ -236,6 +236,8 @@ class StreamCorrectionsScreen(QWidget):
         self.streams = []
         self.breaks = []
         self.selected_stream = None
+        self._streams_columns_sized = False
+        self._breaks_columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -333,7 +335,12 @@ class StreamCorrectionsScreen(QWidget):
             self.streams_table.setItem(row, 3, QTableWidgetItem(str(len(stream.corrections))))
             self.streams_table.item(row, 0).setData(1000, stream.id)
 
-        self.streams_table.resizeColumnsToContents()
+        # Only auto-size once -- switching streamers calls load_streams()
+        # again, and resizing on every call would keep undoing a
+        # manually-widened column.
+        if not self._streams_columns_sized:
+            self.streams_table.resizeColumnsToContents()
+            self._streams_columns_sized = True
 
     def on_stream_selected(self):
         rows = self.streams_table.selectionModel().selectedRows()
@@ -363,7 +370,12 @@ class StreamCorrectionsScreen(QWidget):
             self.breaks_table.setItem(row, 3, QTableWidgetItem(str(b.break_gross)))
             self.breaks_table.item(row, 0).setData(1000, b.id)
 
-        self.breaks_table.resizeColumnsToContents()
+        # Only auto-size once -- selecting a different stream calls this
+        # again, and resizing on every call would keep undoing a
+        # manually-widened column.
+        if not self._breaks_columns_sized:
+            self.breaks_table.resizeColumnsToContents()
+            self._breaks_columns_sized = True
 
     def _selected_break(self):
         rows = self.breaks_table.selectionModel().selectedRows()

@@ -97,6 +97,7 @@ class UsersScreen(QWidget):
         super().__init__()
 
         self.current_user = current_user
+        self._columns_sized = False
 
         layout = QVBoxLayout()
 
@@ -145,7 +146,12 @@ class UsersScreen(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(user.decommission_status or ""))
             self.table.item(row, 0).setData(1000, user.id)
 
-        self.table.resizeColumnsToContents()
+        # Only auto-size once -- creating/disabling/resetting a user calls
+        # reload_users() again, and resizing on every call would keep
+        # undoing a manually-widened column.
+        if not self._columns_sized:
+            self.table.resizeColumnsToContents()
+            self._columns_sized = True
 
     def selected_user(self):
         rows = self.table.selectionModel().selectedRows()
