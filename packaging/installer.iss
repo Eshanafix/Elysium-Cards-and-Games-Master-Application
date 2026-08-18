@@ -35,6 +35,7 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=app_icon.ico
 WizardStyle=modern
 ; No credentials, no MongoDB URI, no Python are ever prompted for or
 ; embedded here -- per-machine setup (the real Atlas connection) happens
