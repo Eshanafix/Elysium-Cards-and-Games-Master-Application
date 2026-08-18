@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from elysium.models.users import User
 from elysium.services import auth_service
 from elysium.ui.app_restart import restart_application
-from elysium.ui_settings import SCALE_PRESETS, get_display_scale, set_display_scale
+from elysium.ui_settings import DEFAULT_SCALE, SCALE_PRESETS, get_display_scale, set_display_scale
 
 
 class AccountScreen(QWidget):
@@ -60,7 +60,7 @@ class AccountScreen(QWidget):
             self.zoom_combo.addItem(f"{int(preset * 100)}%", preset)
         current_scale = get_display_scale()
         idx = self.zoom_combo.findData(current_scale)
-        self.zoom_combo.setCurrentIndex(idx if idx >= 0 else self.zoom_combo.findData(1.5))
+        self.zoom_combo.setCurrentIndex(idx if idx >= 0 else self.zoom_combo.findData(DEFAULT_SCALE))
 
         self.apply_zoom_button = QPushButton("Apply && Restart")
         self.apply_zoom_button.clicked.connect(self.apply_zoom)

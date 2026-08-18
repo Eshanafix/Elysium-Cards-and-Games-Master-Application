@@ -2,7 +2,7 @@ import logging
 import os
 import sys
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
 from elysium.local_card import paths
@@ -10,6 +10,26 @@ from elysium.logging_setup import configure_logging
 from elysium.ui.error_handling import install_global_exception_handler
 from elysium.ui.shell import MainWindow
 from elysium.ui_settings import get_display_scale
+
+# Comfortably larger than Qt's own Windows default (Segoe UI 9pt) without
+# going through QT_SCALE_FACTOR -- a real crash (STATUS_STACK_BUFFER_OVERRUN,
+# confirmed via crash-dump analysis deep inside Qt's Windows platform plugin,
+# qwindows.dll) reproduced at this app's old default 150% QT_SCALE_FACTOR and
+# stopped reproducing at 100%. QT_SCALE_FACTOR is a blunt device-pixel-ratio
+# override applied before Qt's own native painting code even starts up;
+# QFont point sizes go through Qt's ordinary, already-DPI-aware text layout
+# instead, so this gets most of the same "everything reads bigger" result
+# (font metrics drive a lot of this app's row heights/padding too) without
+# touching that code path. ui_settings.DEFAULT_SCALE is now 1.0 for the same
+# reason -- the zoom picker on the Account screen is still there for anyone
+# who wants more than this.
+BASE_FONT_POINT_SIZE = 12
+
+
+def _apply_base_font(app: QApplication) -> None:
+    font = app.font()
+    font.setPointSize(BASE_FONT_POINT_SIZE)
+    app.setFont(font)
 
 
 def _apply_dark_theme(app: QApplication) -> None:
@@ -60,6 +80,7 @@ def main():
 
     app = QApplication(sys.argv)
     _apply_dark_theme(app)
+    _apply_base_font(app)
     install_global_exception_handler()
 
     window = MainWindow()

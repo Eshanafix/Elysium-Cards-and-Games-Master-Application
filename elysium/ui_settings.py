@@ -12,6 +12,17 @@ just multiplies all of it uniformly. There is no supported way to change
 this on an already-running QApplication, which is why changing the scale
 here always requires an app restart to take effect (elysium/ui/
 app_restart.py provides one).
+
+DEFAULT_SCALE was 1.5 (this app's original "make it bigger" default) until
+a real crash (STATUS_STACK_BUFFER_OVERRUN, deep inside Qt's own Windows
+platform plugin per crash-dump analysis) was confirmed, via live
+reproduction, to happen at 150% and stop happening at 100% -- QT_SCALE_FACTOR
+sits underneath Qt's native painting code, so pushing it far from 1.0 is
+apparently not as safe on this Qt/PySide6 version as the per-user zoom
+picker below assumes. Defaulting to 1.0 avoids that path entirely; anyone
+who wants things bigger than the baseline size (elysium/main.py's
+BASE_FONT_POINT_SIZE, applied via QFont instead) can still raise this from
+the Account screen -- it's just no longer where "bigger by default" lives.
 """
 
 import json
@@ -19,7 +30,7 @@ from pathlib import Path
 
 from elysium.local_card.paths import get_app_data_dir
 
-DEFAULT_SCALE = 1.5
+DEFAULT_SCALE = 1.0
 MIN_SCALE = 0.75
 MAX_SCALE = 3.0
 
