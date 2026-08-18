@@ -23,7 +23,7 @@ from elysium.repositories import master_repository as repo
 from elysium.services import inventory_service, product_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 
 class ClaimInventoryDialog(QDialog):
@@ -187,7 +187,7 @@ class MyInventoryScreen(QWidget):
         # again right after, and resizeColumnsToContents() on every call
         # would silently undo a column width the user had just dragged wider.
         if not self._columns_sized:
-            self.table.resizeColumnsToContents()
+            resize_columns_to_contents(self.table)
             self._columns_sized = True
         self.table.setSortingEnabled(True)
 
@@ -328,6 +328,6 @@ class StreamerInventoryAdminScreen(QWidget):
         # would silently undo a column width the user had just dragged wider
         # (e.g. "why do I have to keep resizing the Product column").
         if not self._columns_sized:
-            self.table.resizeColumnsToContents()
+            resize_columns_to_contents(self.table)
             self._columns_sized = True
         self.table.setSortingEnabled(True)

@@ -28,7 +28,7 @@ from elysium.exports.report_definitions import available_reports
 from elysium.models.users import ROLE_ADMIN
 from elysium.repositories import master_repository as repo
 from elysium.services import report_service
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 from elysium.ui.background import run_worker, safe_callback
 
 
@@ -217,7 +217,7 @@ class ReportsScreen(QWidget):
                 self.table.setItem(row_idx, col_idx, QTableWidgetItem("" if value is None else str(value)))
 
         if self._columns_sized_for_report_key != definition.key:
-            self.table.resizeColumnsToContents()
+            resize_columns_to_contents(self.table)
             self._columns_sized_for_report_key = definition.key
         self.table.resizeRowsToContents()
         self.show_message(f"{len(rows)} row(s).", error=False)

@@ -43,7 +43,7 @@ from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.no_scroll_combo import NoScrollComboBox
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.prices import PriceRefreshWorker
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 SEARCH_DEBOUNCE_MS = 250
 
@@ -516,7 +516,7 @@ class ProductsScreen(QWidget):
         # reload_products() again, and resizing on every call would keep
         # undoing a manually-widened column.
         if not self._columns_sized:
-            self.table.resizeColumnsToContents()
+            resize_columns_to_contents(self.table)
             self._columns_sized = True
 
     def selected_product(self) -> Product | None:

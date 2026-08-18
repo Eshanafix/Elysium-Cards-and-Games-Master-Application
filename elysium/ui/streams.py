@@ -42,7 +42,7 @@ from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.grid_stretch import apply_trailing_stretch
 from elysium.ui.prices import PriceRefreshWorker
 from elysium.ui.slot_tracker import SlotValueTracker
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 BREAK_STATUS_LABELS = {
     BREAK_STATUS_ACTIVE: "In Progress",
@@ -217,7 +217,7 @@ class EndStreamDialog(QDialog):
         # this dialog stays open, and resizing on every call would keep
         # undoing a manually-widened column.
         if not self._columns_sized:
-            self.breaks_table.resizeColumnsToContents()
+            resize_columns_to_contents(self.breaks_table)
             self._columns_sized = True
         self.breaks_table.resizeRowsToContents()
 
@@ -870,7 +870,7 @@ class StreamsScreen(QWidget):
         # a live stream, and resizing on every call would keep undoing a
         # manually-widened column.
         if not self._breaks_columns_sized:
-            self.breaks_table.resizeColumnsToContents()
+            resize_columns_to_contents(self.breaks_table)
             self._breaks_columns_sized = True
         self.breaks_table.resizeRowsToContents()
 

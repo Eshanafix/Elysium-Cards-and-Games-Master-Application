@@ -33,7 +33,7 @@ from elysium.repositories import streamer_repository as streamer_repo
 from elysium.services import correction_service
 from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.numeric_inputs import SelectAllDoubleSpinBox, SelectAllSpinBox
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 
 class ShortageChoiceDialog(QDialog):
@@ -151,7 +151,7 @@ class CorrectBreakDialog(QDialog):
             price_field.setPlaceholderText("uses locked/snapshot price")
         self.table.setCellWidget(row, 3, price_field)
 
-        self.table.resizeColumnsToContents()
+        resize_columns_to_contents(self.table)
 
     def on_add_row(self):
         product_id = self.add_product_combo.currentData()
@@ -339,7 +339,7 @@ class StreamCorrectionsScreen(QWidget):
         # again, and resizing on every call would keep undoing a
         # manually-widened column.
         if not self._streams_columns_sized:
-            self.streams_table.resizeColumnsToContents()
+            resize_columns_to_contents(self.streams_table)
             self._streams_columns_sized = True
 
     def on_stream_selected(self):
@@ -374,7 +374,7 @@ class StreamCorrectionsScreen(QWidget):
         # again, and resizing on every call would keep undoing a
         # manually-widened column.
         if not self._breaks_columns_sized:
-            self.breaks_table.resizeColumnsToContents()
+            resize_columns_to_contents(self.breaks_table)
             self._breaks_columns_sized = True
 
     def _selected_break(self):

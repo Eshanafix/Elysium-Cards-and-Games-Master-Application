@@ -32,7 +32,7 @@ from elysium.exports.csv_exporter import CsvExportWorker
 from elysium.repositories import master_repository as repo
 from elysium.services import audit_service
 from elysium.ui.background import run_worker, safe_callback
-from elysium.ui.table_scaling import make_columns_stretch
+from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 _ACTION_TYPES = [
     "MASTER_INVENTORY_ADDED", "MASTER_INVENTORY_REMOVED",
@@ -199,7 +199,7 @@ class AuditHistoryScreen(QWidget):
         # Only auto-size once -- Run/filter changes call reload() repeatedly,
         # and resizing on every call would keep undoing a manually-widened column.
         if not self._columns_sized:
-            self.table.resizeColumnsToContents()
+            resize_columns_to_contents(self.table)
             self._columns_sized = True
         self.show_message(f"{len(self.events)} event(s).", error=False)
 
