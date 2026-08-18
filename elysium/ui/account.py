@@ -100,7 +100,7 @@ class AccountScreen(QWidget):
         restart_application()
 
     def change_password(self):
-        self.message_label.setStyleSheet("color: #b00020;")
+        self.message_label.setStyleSheet("color: #ff6b6b;")
 
         current = self.current_password_input.text()
         new = self.new_password_input.text()
@@ -126,5 +126,5 @@ class AccountScreen(QWidget):
         self.current_password_input.clear()
         self.new_password_input.clear()
         self.confirm_password_input.clear()
-        self.message_label.setStyleSheet("color: #1a7f37;")
+        self.message_label.setStyleSheet("color: #4caf50;")
         self.message_label.setText("Password changed.")

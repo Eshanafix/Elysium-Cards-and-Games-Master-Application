@@ -62,11 +62,11 @@ class DatabaseConnectionDialog(QDialog):
         uri = self.uri_input.text().strip()
 
         if not uri:
-            self.status_label.setStyleSheet("color: #b00020;")
+            self.status_label.setStyleSheet("color: #ff6b6b;")
             self.status_label.setText("Enter a connection string.")
             return
 
-        self.status_label.setStyleSheet("color: #555555;")
+        self.status_label.setStyleSheet("color: #aaaaaa;")
         self.status_label.setText("Testing connection...")
         self.test_and_save_button.setEnabled(False)
         self.repaint()
@@ -75,7 +75,7 @@ class DatabaseConnectionDialog(QDialog):
         self.test_and_save_button.setEnabled(True)
 
         if not status.is_connected:
-            self.status_label.setStyleSheet("color: #b00020;")
+            self.status_label.setStyleSheet("color: #ff6b6b;")
             self.status_label.setText(f"Could not connect: {status.detail}")
             return
 
@@ -104,7 +104,7 @@ class MandatoryUpdateDialog(QDialog):
         if release_notes:
             notes = QLabel(release_notes)
             notes.setWordWrap(True)
-            notes.setStyleSheet("color: #555555;")
+            notes.setStyleSheet("color: #aaaaaa;")
             layout.addWidget(notes)
 
         self.download_button = QPushButton("Download Update")
@@ -158,7 +158,7 @@ class LoginScreen(QWidget):
 
         self.login_error_label = QLabel()
         self.login_error_label.setWordWrap(True)
-        self.login_error_label.setStyleSheet("color: #b00020;")
+        self.login_error_label.setStyleSheet("color: #ff6b6b;")
 
         layout.addWidget(self.title)
         layout.addWidget(self.version_label)
@@ -182,10 +182,10 @@ class LoginScreen(QWidget):
 
         if status.is_connected:
             self.connection_status_label.setText("MongoDB: connected")
-            self.connection_status_label.setStyleSheet("color: #1a7f37;")
+            self.connection_status_label.setStyleSheet("color: #4caf50;")
         else:
             self.connection_status_label.setText(f"MongoDB: unavailable ({status.detail})")
-            self.connection_status_label.setStyleSheet("color: #b00020;")
+            self.connection_status_label.setStyleSheet("color: #ff6b6b;")
 
     def configure_connection(self):
         dialog = DatabaseConnectionDialog(self)

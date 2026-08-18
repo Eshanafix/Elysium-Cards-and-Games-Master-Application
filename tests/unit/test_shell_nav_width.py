@@ -22,7 +22,7 @@ def test_fit_nav_list_width_fits_the_widest_item(qtbot):
 
     metrics = nav_list.fontMetrics()
     widest = metrics.horizontalAdvance("Shared Sealed Prices")
-    assert nav_list.width() == widest + 50
+    assert nav_list.width() == widest + shell.NAV_ITEM_WIDTH_CHROME
 
 
 def test_fit_nav_list_width_grows_for_a_longer_item_than_the_old_160px_cap(qtbot):
@@ -43,7 +43,7 @@ def test_fit_nav_list_width_handles_empty_list(qtbot):
 
     shell._fit_nav_list_width(nav_list)  # must not raise
 
-    assert nav_list.width() == 50
+    assert nav_list.width() == shell.NAV_ITEM_WIDTH_CHROME
 
 
 def test_guest_shell_nav_list_is_not_capped_at_160(qtbot, monkeypatch):
@@ -53,3 +53,15 @@ def test_guest_shell_nav_list_is_not_capped_at_160(qtbot, monkeypatch):
     qtbot.addWidget(guest_shell)
 
     assert guest_shell.nav_list.maximumWidth() != 160
+
+
+def test_guest_shell_nav_list_has_item_separator_styling(qtbot, monkeypatch):
+    # Regression guard for the "items packed edge-to-edge with no visual
+    # separation" bug that switching to the Fusion style introduced.
+    monkeypatch.setattr(shell, "CardLookupTab", lambda: shell.QWidget())
+
+    guest_shell = shell.GuestShell(on_login_requested=lambda: None)
+    qtbot.addWidget(guest_shell)
+
+    assert guest_shell.nav_list.styleSheet() == shell.NAV_LIST_STYLE
+    assert "border" in shell.NAV_LIST_STYLE

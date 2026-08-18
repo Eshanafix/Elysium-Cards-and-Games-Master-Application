@@ -50,7 +50,7 @@ class SlotEditDialog(QDialog):
         layout.addLayout(grid)
 
         self.error_label = QLabel()
-        self.error_label.setStyleSheet("color: #b00020;")
+        self.error_label.setStyleSheet("color: #ff6b6b;")
         layout.addWidget(self.error_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -197,10 +197,10 @@ class SlotValueTracker(QFrame):
         if self.compare_to is not None and filled > 0:
             diff = total - self.compare_to
             if diff >= 0:
-                self.compare_label.setStyleSheet("color: #1a7f37;")
+                self.compare_label.setStyleSheet("color: #4caf50;")
                 self.compare_label.setText(f"${diff:.2f} over pack value (${self.compare_to:.2f}) -- covered.")
             else:
-                self.compare_label.setStyleSheet("color: #b00020;")
+                self.compare_label.setStyleSheet("color: #ff6b6b;")
                 self.compare_label.setText(f"${-diff:.2f} under pack value (${self.compare_to:.2f}) so far.")
         else:
             self.compare_label.setStyleSheet("")

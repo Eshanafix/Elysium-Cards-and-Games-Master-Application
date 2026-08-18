@@ -5,4 +5,4 @@ via the admin App Updates screen (elysium.services.update_service) to decide
 whether a login is blocked pending a mandatory update.
 """
 
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"

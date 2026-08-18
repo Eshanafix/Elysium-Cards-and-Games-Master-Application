@@ -99,6 +99,17 @@ def list_breaks_for_streams(streamer_database_name: str, stream_ids: list[str], 
     return [Break.from_document(doc) for doc in docs]
 
 
+def list_all_breaks_for_streamer(streamer_database_name: str, session=None) -> list[Break]:
+    """Every non-deleted break in this streamer's database, regardless of
+    which stream it belongs to -- used for cross-stream analysis (the AI
+    assistant's break-profit-by-pack-count tool) where scoping to a single
+    stream_id isn't what's needed."""
+    docs = get_streamer_db(streamer_database_name).breaks.find(
+        {"status": {"$ne": BREAK_STATUS_DELETED}}, session=session
+    )
+    return [Break.from_document(doc) for doc in docs]
+
+
 def next_break_sequence_number(streamer_database_name: str, stream_id: str, session=None) -> int:
     last = list(
         get_streamer_db(streamer_database_name).breaks

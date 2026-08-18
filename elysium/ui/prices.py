@@ -263,5 +263,5 @@ class PricesScreen(QWidget):
         self.reload_prices()
 
     def show_message(self, text: str, error: bool):
-        self.message_label.setStyleSheet("color: #b00020;" if error else "color: #1a7f37;")
+        self.message_label.setStyleSheet("color: #ff6b6b;" if error else "color: #4caf50;")
         self.message_label.setText(text)

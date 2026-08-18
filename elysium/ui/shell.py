@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from elysium.config import APP_NAME
 from elysium.models.users import ROLE_ADMIN, ROLE_STREAMER
 from elysium.ui.account import AccountScreen
+from elysium.ui.ai_assistant import AiAssistantScreen
 from elysium.ui.app_updates import AppUpdatesScreen
 from elysium.ui.audit import AuditHistoryScreen
 from elysium.ui.card_lookup import CardLookupTab
@@ -52,7 +53,50 @@ NAV_AUDIT_HISTORY = "Audit History"
 NAV_ACCOUNT = "Account"
 NAV_USERS = "Users"
 NAV_APP_UPDATES = "App Updates"
+NAV_AI_ASSISTANT = "Ask Elysium"
 NAV_LOGOUT = "Logout"
+
+
+# Switching app.setStyle("Fusion") (main.py's _apply_dark_theme) dropped the
+# native per-item box borders the nav list used to render, leaving items
+# packed edge-to-edge with no visual separation. These constants define that
+# separation explicitly via QSS below -- and are reused (not just mirrored)
+# in _fit_nav_list_width's buffer calculation, so the two can never drift
+# out of sync the way a second hardcoded number would.
+NAV_ITEM_PADDING_V = 10
+NAV_ITEM_PADDING_H = 14
+NAV_ITEM_MARGIN_H = 6
+NAV_ITEM_BORDER_WIDTH = 1
+
+# Horizontal chrome the stylesheet below adds on both sides of an item's
+# text (padding + margin + border, left and right), plus a little slack for
+# font-metric rounding -- _fit_nav_list_width must add this on top of the
+# widest label's raw text width, or the longest label gets truncated again
+# exactly like the original hardcoded-160px bug this replaced.
+NAV_ITEM_WIDTH_CHROME = 2 * (NAV_ITEM_PADDING_H + NAV_ITEM_MARGIN_H + NAV_ITEM_BORDER_WIDTH) + 20
+
+NAV_LIST_STYLE = f"""
+    QListWidget {{
+        border: none;
+        outline: none;
+        background-color: transparent;
+    }}
+    QListWidget::item {{
+        padding: {NAV_ITEM_PADDING_V}px {NAV_ITEM_PADDING_H}px;
+        margin: 3px {NAV_ITEM_MARGIN_H}px;
+        border: {NAV_ITEM_BORDER_WIDTH}px solid #4a4a4a;
+        border-radius: 6px;
+        background-color: #333333;
+    }}
+    QListWidget::item:hover {{
+        background-color: #3d3d3d;
+    }}
+    QListWidget::item:selected {{
+        background-color: #3daee9;
+        color: #0a0a0a;
+        border: {NAV_ITEM_BORDER_WIDTH}px solid #3daee9;
+    }}
+"""
 
 
 def _fit_nav_list_width(nav_list: QListWidget) -> None:
@@ -61,10 +105,11 @@ def _fit_nav_list_width(nav_list: QListWidget) -> None:
     smaller laptop screen, different OS-level display scaling, etc.) the
     longer labels ("Master Inventory", "Shared Sealed Prices") don't fit
     and get truncated mid-word instead. Size to whatever's actually needed
-    for the widest item currently in the list, at the list's real font."""
+    for the widest item currently in the list, at the list's real font,
+    plus the item chrome NAV_LIST_STYLE adds around that text."""
     metrics = nav_list.fontMetrics()
     widest = max((metrics.horizontalAdvance(nav_list.item(i).text()) for i in range(nav_list.count())), default=0)
-    nav_list.setFixedWidth(widest + 50)
+    nav_list.setFixedWidth(widest + NAV_ITEM_WIDTH_CHROME)
 
 
 class GuestShell(QWidget):
@@ -76,6 +121,7 @@ class GuestShell(QWidget):
         layout = QHBoxLayout()
 
         self.nav_list = QListWidget()
+        self.nav_list.setStyleSheet(NAV_LIST_STYLE)
         self.nav_list.addItem(QListWidgetItem(NAV_CARD_LOOKUP))
         self.nav_list.addItem(QListWidgetItem(NAV_LOGIN))
         _fit_nav_list_width(self.nav_list)
@@ -112,6 +158,7 @@ class AppShell(QWidget):
         layout = QHBoxLayout()
 
         self.nav_list = QListWidget()
+        self.nav_list.setStyleSheet(NAV_LIST_STYLE)
 
         # Dashboard always first, then ordered by actual usage frequency.
         # Streamers now get read-only Master Inventory visibility too (LLD
@@ -145,6 +192,7 @@ class AppShell(QWidget):
         if ROLE_ADMIN in user.roles:
             nav_items.append(NAV_USERS)
             nav_items.append(NAV_APP_UPDATES)
+            nav_items.append(NAV_AI_ASSISTANT)
 
         nav_items.append(NAV_ACCOUNT)
         nav_items.append(NAV_LOGOUT)
@@ -171,6 +219,7 @@ class AppShell(QWidget):
 
         self.users_screen = None
         self.app_updates_screen = None
+        self.ai_assistant_screen = None
         self.products_screen = None
         self.streamer_inventory_admin_screen = None
         self.my_inventory_screen = None
@@ -190,6 +239,9 @@ class AppShell(QWidget):
 
             self.app_updates_screen = AppUpdatesScreen(user)
             self.content.addWidget(self.app_updates_screen)
+
+            self.ai_assistant_screen = AiAssistantScreen(user)
+            self.content.addWidget(self.ai_assistant_screen)
 
             self.products_screen = ProductsScreen(user)
             self.content.addWidget(self.products_screen)
@@ -275,6 +327,9 @@ class AppShell(QWidget):
         elif label == NAV_APP_UPDATES and self.app_updates_screen is not None:
             self.app_updates_screen.reload()
             self.content.setCurrentWidget(self.app_updates_screen)
+        elif label == NAV_AI_ASSISTANT and self.ai_assistant_screen is not None:
+            self.ai_assistant_screen.reload()
+            self.content.setCurrentWidget(self.ai_assistant_screen)
 
 
 class MainWindow(QMainWindow):

@@ -51,7 +51,7 @@ class StatTile(QFrame):
         layout = QVBoxLayout()
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #555555;")
+        title_label.setStyleSheet("font-size: 12px; font-weight: 600; color: #aaaaaa;")
 
         self.value_label = QLabel(value)
         self.value_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #1a1a1a;")
@@ -176,7 +176,11 @@ class DashboardScreen(QWidget):
 
         # --- Company-wide stats (admin) ---
         self.admin_stats_title = QLabel("Company Stats")
-        self.admin_stats_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1a1a1a; margin-top: 16px; margin-bottom: 4px;")
+        # No hardcoded color here (unlike StatTile, which sets its own
+        # background) -- this label sits directly on the app's window
+        # background, so it must inherit the app palette's WindowText color
+        # to stay readable regardless of theme (see main.py's _apply_dark_theme).
+        self.admin_stats_title.setStyleSheet("font-size: 18px; font-weight: bold; margin-top: 16px; margin-bottom: 4px;")
 
         self.total_packs_tile = StatTile("Total Packs", "—")
         self.total_value_tile = StatTile("Total Pack Value", "—")
@@ -191,7 +195,7 @@ class DashboardScreen(QWidget):
 
         # --- Personal stats (streamer) ---
         self.streamer_stats_title = QLabel("Your Stats")
-        self.streamer_stats_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1a1a1a; margin-top: 16px; margin-bottom: 4px;")
+        self.streamer_stats_title.setStyleSheet("font-size: 18px; font-weight: bold; margin-top: 16px; margin-bottom: 4px;")
 
         # All-time by default; the checkbox opts into truncating by a
         # specific date range instead (start/end dates default to the
@@ -249,7 +253,7 @@ class DashboardScreen(QWidget):
         self.streamer_stats_container.setLayout(streamer_stats_layout)
 
         self.danger_zone_label = QLabel("Danger Zone")
-        self.danger_zone_label.setStyleSheet("font-weight: bold; color: #b00020; margin-top: 12px;")
+        self.danger_zone_label.setStyleSheet("font-weight: bold; color: #ff6b6b; margin-top: 12px;")
 
         self.factory_reset_button = QPushButton("Factory Reset (Wipe All Data)")
         self.factory_reset_button.setStyleSheet(
@@ -296,12 +300,12 @@ class DashboardScreen(QWidget):
 
         if status.is_connected:
             self.connection_label.setText("MongoDB: connected")
-            self.connection_label.setStyleSheet("color: #1a7f37;")
+            self.connection_label.setStyleSheet("color: #4caf50;")
             self._refresh_lock_status()
             self._refresh_stats()
         else:
             self.connection_label.setText(f"MongoDB: unavailable ({status.detail})")
-            self.connection_label.setStyleSheet("color: #b00020;")
+            self.connection_label.setStyleSheet("color: #ff6b6b;")
             self.lock_label.setText("")
             self.force_cancel_button.setVisible(False)
             self.recover_refresh_lock_button.setVisible(False)
@@ -377,11 +381,11 @@ class DashboardScreen(QWidget):
         try:
             stream_service.force_cancel_stream(self.user.id, reason)
         except stream_service.StreamValidationError as e:
-            self.message_label.setStyleSheet("color: #b00020;")
+            self.message_label.setStyleSheet("color: #ff6b6b;")
             self.message_label.setText(str(e))
             return
 
-        self.message_label.setStyleSheet("color: #1a7f37;")
+        self.message_label.setStyleSheet("color: #4caf50;")
         self.message_label.setText("Active stream force-canceled.")
         self.refresh()
 
@@ -399,7 +403,7 @@ class DashboardScreen(QWidget):
 
         lock_service.recover_stuck_price_refresh_lock(self.user.id, reason)
 
-        self.message_label.setStyleSheet("color: #1a7f37;")
+        self.message_label.setStyleSheet("color: #4caf50;")
         self.message_label.setText("Price refresh lock recovered.")
         self.refresh()
 

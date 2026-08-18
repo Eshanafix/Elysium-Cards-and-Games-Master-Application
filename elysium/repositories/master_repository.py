@@ -289,6 +289,21 @@ def set_app_update_config(fields: dict) -> None:
     )
 
 
+# --- AI Assistant (shared Anthropic API key config) ---
+
+AI_ASSISTANT_CONFIG_ID = "AI_ASSISTANT"
+
+
+def get_ai_assistant_config() -> dict | None:
+    return get_master_db().app_config.find_one({"_id": AI_ASSISTANT_CONFIG_ID})
+
+
+def set_ai_assistant_config(fields: dict) -> None:
+    get_master_db().app_config.update_one(
+        {"_id": AI_ASSISTANT_CONFIG_ID}, {"$set": fields}, upsert=True
+    )
+
+
 def list_audit_events(
     action_type: str | None = None,
     streamer_id: str | None = None,

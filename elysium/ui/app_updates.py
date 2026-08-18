@@ -85,7 +85,7 @@ class AppUpdatesScreen(QWidget):
         self.release_notes_input.setPlainText(config["release_notes"])
 
     def publish(self):
-        self.message_label.setStyleSheet("color: #b00020;")
+        self.message_label.setStyleSheet("color: #ff6b6b;")
 
         version = self.version_input.text().strip()
         download_url = self.download_url_input.text().strip()
@@ -106,6 +106,6 @@ class AppUpdatesScreen(QWidget):
             self.message_label.setText(str(e))
             return
 
-        self.message_label.setStyleSheet("color: #1a7f37;")
+        self.message_label.setStyleSheet("color: #4caf50;")
         self.message_label.setText("Required version published.")
         self.reload()
