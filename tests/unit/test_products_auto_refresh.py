@@ -1,28 +1,22 @@
 """
-Regression test: creating a product used to require a separate manual
-click on Shared Sealed Prices to get an actual price -- it now kicks off
-a background refresh automatically.
+Regression test: creating a product used to kick off a background,
+full-catalog price refresh automatically. That was removed after a
+crash-dump-confirmed native Qt crash (STATUS_STACK_BUFFER_OVERRUN) while
+rapidly adding sets -- each add started its own PriceRefreshWorker QThread,
+and since a refresh isn't scoped to the new product (it refetches every
+set from TCGCSV), adding several products in a row piled up overlapping
+background refreshes under heavy native dialog churn. Creating a product
+now only ever writes to the catalog; refreshing prices is a separate,
+manual action on Shared Sealed Prices.
 """
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtWidgets import QDialog
 
 from elysium.ui import products
 
 
 class FakeUser:
     id = "admin-1"
-
-
-class FakeWorker(QThread):
-    finished_success = Signal(str)
-    failed = Signal(str)
-
-    def __init__(self, started_by):
-        super().__init__()
-        self.started_by = started_by
-
-    def run(self):
-        pass
 
 
 def make_screen(qtbot, monkeypatch):
@@ -32,55 +26,11 @@ def make_screen(qtbot, monkeypatch):
     return screen
 
 
-def test_auto_refresh_shows_refreshing_message_immediately(qtbot, monkeypatch):
-    monkeypatch.setattr(products, "PriceRefreshWorker", FakeWorker)
-    monkeypatch.setattr(products, "run_worker", lambda worker: None)  # don't actually start the thread
-    screen = make_screen(qtbot, monkeypatch)
-
-    screen._auto_refresh_prices_after_create("Kaladesh Booster")
-
-    assert "Kaladesh Booster" in screen.message_label.text()
-    assert "Refreshing prices" in screen.message_label.text()
-
-
-def test_auto_refresh_success_updates_message(qtbot, monkeypatch):
-    monkeypatch.setattr(products, "PriceRefreshWorker", FakeWorker)
-    monkeypatch.setattr(products, "run_worker", lambda worker: None)
-    screen = make_screen(qtbot, monkeypatch)
-
-    screen._auto_refresh_prices_after_create("Kaladesh Booster")
-    screen._price_refresh_worker.finished_success.emit("session-1")
-
-    assert "prices refreshed" in screen.message_label.text()
-    assert "Kaladesh Booster" in screen.message_label.text()
-
-
-def test_auto_refresh_failure_shows_error_but_mentions_product_created(qtbot, monkeypatch):
-    monkeypatch.setattr(products, "PriceRefreshWorker", FakeWorker)
-    monkeypatch.setattr(products, "run_worker", lambda worker: None)
-    screen = make_screen(qtbot, monkeypatch)
-
-    screen._auto_refresh_prices_after_create("Kaladesh Booster")
-    screen._price_refresh_worker.failed.emit("a stream is active")
-
-    text = screen.message_label.text()
-    assert "Kaladesh Booster" in text
-    assert "created" in text
-    assert "a stream is active" in text
-
-
-def test_open_create_dialog_triggers_auto_refresh_on_success(qtbot, monkeypatch):
-    from PySide6.QtWidgets import QDialog
-
-    monkeypatch.setattr(products, "PriceRefreshWorker", FakeWorker)
-    monkeypatch.setattr(products, "run_worker", lambda worker: None)
+def test_open_create_dialog_does_not_start_a_price_refresh(qtbot, monkeypatch):
     screen = make_screen(qtbot, monkeypatch)
 
     fake_product = type("P", (), {"id": "kld-booster"})()
     monkeypatch.setattr(products.product_service, "create_product", lambda created_by, **values: fake_product)
-
-    called = {}
-    monkeypatch.setattr(screen, "_auto_refresh_prices_after_create", lambda name: called.setdefault("name", name))
 
     class FakeDialog:
         def __init__(self, parent):
@@ -100,6 +50,49 @@ def test_open_create_dialog_triggers_auto_refresh_on_success(qtbot, monkeypatch)
 
     monkeypatch.setattr(products, "ProductDialog", FakeDialog)
 
+    assert not hasattr(screen, "_auto_refresh_prices_after_create")
+
     screen.open_create_dialog()
 
-    assert called["name"] == "Kaladesh Booster"
+    text = screen.message_label.text()
+    assert "Kaladesh Booster" in text
+    assert "created" in text
+    assert "Refresh prices from Shared Sealed Prices" in text
+    assert not hasattr(screen, "_price_refresh_worker")
+
+
+def test_adding_several_products_in_a_row_never_touches_price_refresh(qtbot, monkeypatch):
+    """The actual crash scenario: adding many products back-to-back used to
+    fire overlapping background PriceRefreshWorker threads. Confirm none of
+    that machinery is reachable from the create path anymore."""
+    screen = make_screen(qtbot, monkeypatch)
+
+    products_created = []
+    monkeypatch.setattr(
+        products.product_service, "create_product",
+        lambda created_by, **values: products_created.append(values["name"]) or type("P", (), {"id": values["name"]})(),
+    )
+
+    class FakeDialog:
+        def __init__(self, parent):
+            pass
+
+        def exec(self):
+            return QDialog.Accepted
+
+        def field_values(self):
+            return {
+                "name": f"Set {len(products_created)} Booster", "set_name": "Set", "set_code": "SET",
+                "booster_type": "CLASSIC", "packs_per_box": 36,
+                "tcgcsv_category_id": "1", "tcgcsv_group_id": "1791",
+                "loose_pack_tcgcsv_product_id": "1", "box_tcgcsv_product_id": "2",
+                "image_url": "", "english_confirmed": True,
+            }
+
+    monkeypatch.setattr(products, "ProductDialog", FakeDialog)
+
+    for _ in range(15):
+        screen.open_create_dialog()
+
+    assert len(products_created) == 15
+    assert not hasattr(screen, "_price_refresh_worker")

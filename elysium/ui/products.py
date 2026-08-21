@@ -38,11 +38,9 @@ from PySide6.QtWidgets import (
 
 from elysium.models.products import BOOSTER_TYPES, Product
 from elysium.services import product_service, sealed_image_cache_service, tcgcsv_catalog_service
-from elysium.ui.background import run_worker, safe_callback
 from elysium.ui.dialog_sizing import clamp_to_screen
 from elysium.ui.no_scroll_combo import NoScrollComboBox
 from elysium.ui.numeric_inputs import SelectAllSpinBox
-from elysium.ui.prices import PriceRefreshWorker
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 SEARCH_DEBOUNCE_MS = 250
@@ -545,22 +543,22 @@ class ProductsScreen(QWidget):
             return
 
         self.reload_products()
-        self._auto_refresh_prices_after_create(values["name"])
-
-    def _auto_refresh_prices_after_create(self, product_name: str):
-        """A newly created product has no price yet -- refresh automatically
-        instead of making the admin remember to go press it separately on
-        Shared Sealed Prices."""
-        self.show_message(f"Product '{product_name}' created. Refreshing prices...", error=False)
-
-        self._price_refresh_worker = PriceRefreshWorker(self.current_user.id)
-        self._price_refresh_worker.finished_success.connect(safe_callback(
-            lambda session_id: self.show_message(f"Product '{product_name}' created; prices refreshed.", error=False)
-        ))
-        self._price_refresh_worker.failed.connect(safe_callback(
-            lambda err: self.show_message(f"Product '{product_name}' created, but price refresh failed: {err}", error=True)
-        ))
-        run_worker(self._price_refresh_worker)
+        # Deliberately NOT auto-refreshing prices here anymore. This used to
+        # kick off a full-catalog PriceRefreshWorker on every single product
+        # add, which (a) doesn't even scope to the new product -- it refetches
+        # every set's prices from TCGCSV -- and (b) meant adding several
+        # products in a row piled up multiple overlapping background refresh
+        # threads (each losing the global refresh lock to whichever one
+        # started first, which is the "price refresh already in progress"
+        # error). A crash-dump-confirmed native Qt crash (STATUS_STACK_BUFFER_
+        # OVERRUN, entirely inside Qt6Widgets/Qt6Gui/qwindows.dll -- no Python
+        # frames) happened while rapidly adding sets under exactly this
+        # pattern. Refreshing prices is now purely a manual action on the
+        # Shared Sealed Prices screen.
+        self.show_message(
+            f"Product '{values['name']}' created. Refresh prices from Shared Sealed Prices when ready.",
+            error=False,
+        )
 
     def open_edit_dialog(self):
         product = self.selected_product()
