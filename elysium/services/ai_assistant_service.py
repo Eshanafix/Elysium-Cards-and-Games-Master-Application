@@ -44,7 +44,16 @@ from elysium.repositories import streamer_repository as streamer_repo
 from elysium.services import audit_service, dashboard_service
 
 MODEL = "claude-sonnet-5"
-MAX_TOKENS = 4096
+# A question that makes the model reason over many rows of tool data (e.g.
+# summing/comparing value across dozens of products) can burn through its
+# entire token budget on internal reasoning alone before writing a single
+# word of the actual answer -- confirmed live: a "where's the value
+# concentrated" question over one streamer's ~70-product allocation used
+# the full old budget (4096) purely on thinking tokens and got cut off with
+# stop_reason=max_tokens and zero text, which is what ask() below reports
+# back as "The assistant didn't return a text answer." 16000 leaves
+# headroom for both the reasoning and the reply on realistic questions.
+MAX_TOKENS = 16000
 
 SYSTEM_PROMPT = (
     "You are Ask Elysium, a data assistant built into the Elysium Cards and Games "
