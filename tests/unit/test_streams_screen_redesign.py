@@ -81,9 +81,9 @@ def test_break_product_tile_shows_classification_banner_color_when_not_selected(
         available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
     )
 
-    assert "#ffeb3b" in low.styleSheet()  # yellow
-    assert "#ff9800" in mid.styleSheet()  # orange
-    assert "#f44336" in high.styleSheet()  # red
+    assert "#bdc05c" in low.styleSheet()  # yellow
+    assert "#fa9246" in mid.styleSheet()  # orange
+    assert "#fb5445" in high.styleSheet()  # red
 
     for tile in (low, mid, high):
         assert "#000000" not in tile.styleSheet()
@@ -109,25 +109,33 @@ def test_break_product_tile_gets_a_thick_black_border_when_selected_but_keeps_it
     )
 
     assert "background-color: #000000" not in selected.styleSheet()
-    assert "#ffeb3b" in selected.styleSheet()  # still the LOW banner color, not blacked out
-    assert "10px solid #000000" in selected.styleSheet()
+    assert "#bdc05c" in selected.styleSheet()  # still the LOW banner color, not blacked out
+    assert "7px solid #000000" in selected.styleSheet()
     assert "1px solid #999999" in unselected.styleSheet()
 
 
-def test_break_product_tile_image_stays_centered_regardless_of_selection_border_width():
-    """Regression: the image is fixed-size, so without an explicit
-    alignment it defaults to left-anchored within the layout column. The
-    frame's outer width is fixed, so widening the border for the selected
-    state used to shrink the content column from the left, visibly
-    shifting the (left-anchored) image a few pixels to the right."""
+def test_break_product_tile_image_does_not_move_when_selected(qtbot):
+    """Regression: an AlignHCenter flag alone isn't enough to prove this --
+    the image (TILE_IMAGE_WIDTH) is nearly as wide as the whole tile
+    (TILE_WIDTH), so once the selected state's thicker border shrank the
+    content area below the image's own width, "centering" had no room to
+    do anything and the image just sat pinned at the border-width-dependent
+    left edge regardless of the alignment flag. This asserts the actual
+    on-screen x position instead, which is what really caught the bug."""
+    positions = {}
     for selected in (0, 2):
         tile = streams.BreakProductTile(
             product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
             available=10, selected=selected, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
         )
+        qtbot.addWidget(tile)
+        tile.resize(tile.sizeHint())
+        tile.show()
+        qtbot.waitExposed(tile)
         image_label = tile.findChild(streams.QLabel, "tileImage")
-        index = tile.layout().indexOf(image_label)
-        assert tile.layout().itemAt(index).alignment() & streams.Qt.AlignHCenter
+        positions[selected] = image_label.x()
+
+    assert positions[0] == positions[2]
 
 
 def test_break_product_tile_has_no_plus_minus_buttons():

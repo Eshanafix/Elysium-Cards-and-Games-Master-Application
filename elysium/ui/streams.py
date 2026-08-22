@@ -289,6 +289,12 @@ class EndStreamDialog(QDialog):
 TILE_WIDTH = 120  # 25% smaller than the original 160px -- more packs visible at once
 TILE_IMAGE_WIDTH = 105
 TILE_IMAGE_HEIGHT = 146
+# Total border+padding inset (each side) that BreakProductTile's selected
+# and unselected styling both add up to -- see _apply_style. Chosen as the
+# largest value that still leaves the (nearly tile-width-sized) product
+# image a sliver of breathing room: TILE_WIDTH - 2*_TILE_CONTENT_INSET
+# must stay >= TILE_IMAGE_WIDTH.
+_TILE_CONTENT_INSET = 7
 GRID_SPACING = 10
 MIN_GRID_COLUMNS = 2  # floor so a very narrow window still shows a usable grid
 TILE_NAME_HEIGHT = 46  # fixed regardless of name length, so every tile in a
@@ -308,9 +314,9 @@ def _columns_for_width(available_width: int) -> int:
 
 
 _CLASSIFICATION_BANNER_COLOR = {
-    CLASSIFICATION_LOW: "#ffeb3b",   # yellow
-    CLASSIFICATION_MID: "#ff9800",   # orange
-    CLASSIFICATION_HIGH: "#f44336",  # red
+    CLASSIFICATION_LOW: "#bdc05c",   # yellow
+    CLASSIFICATION_MID: "#fa9246",   # orange
+    CLASSIFICATION_HIGH: "#fb5445",  # red
 }
 
 
@@ -343,6 +349,15 @@ class BreakProductTile(QFrame):
 
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignTop)
+        # Zeroed explicitly -- QVBoxLayout's own default margins (11px on
+        # every side) stacked on top of the frame's border+padding insets,
+        # which is what actually caused the image to shift right on select
+        # even after centering it: the image (105px) barely fit inside the
+        # frame's own content width (up to 106px) at all, so the extra 22px
+        # of unaccounted layout margin left no room for centering to do
+        # anything -- the image just sat pinned at the (border-width-
+        # dependent) left edge regardless of alignment.
+        layout.setContentsMargins(0, 0, 0, 0)
 
         image_label = QLabel()
         image_label.setObjectName("tileImage")
@@ -415,21 +430,36 @@ class BreakProductTile(QFrame):
         # "is this one selected" reads instantly without losing the
         # LOW/MID/HIGH color underneath. Unpriced products (classify_price
         # returns None) stay plain white.
+        #
+        # border + padding is kept at a constant total (_TILE_CONTENT_INSET)
+        # regardless of state -- CSS border and padding both eat into the
+        # frame's content width, and the product image (TILE_IMAGE_WIDTH)
+        # is already nearly as wide as the tile itself (TILE_WIDTH), so a
+        # thicker border with padding left unchanged genuinely shrank the
+        # content area and pushed the centered image left/right. Trading
+        # padding for border keeps the content width -- and the image's
+        # position -- identical in both states. This is also the practical
+        # ceiling on how thick the selected border can get without either
+        # shrinking the image or widening the tile: _TILE_CONTENT_INSET
+        # can't grow much past 7 without leaving less than a pixel of
+        # padding on the *unselected* tiles.
         classification = classify_price(unit_price)
         background_color = _CLASSIFICATION_BANNER_COLOR.get(classification, "white")
         text_color = "black"
 
         if is_selected:
             border_color = "#000000"
-            border_width = 10
+            border_width = _TILE_CONTENT_INSET
         else:
             border_color = "#999999"
             border_width = 1
 
+        padding = _TILE_CONTENT_INSET - border_width
+
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {background_color}; border: {border_width}px solid {border_color};
-                border-radius: 8px; padding: 6px;
+                border-radius: 8px; padding: {padding}px;
             }}
             QLabel {{ color: {text_color}; background-color: transparent; border: none; }}
         """)
