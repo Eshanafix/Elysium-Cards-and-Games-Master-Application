@@ -56,6 +56,41 @@ def test_prices_screen_sorting_enabled_and_selection_survives_sort(qtbot, monkey
     assert selected_price.resolved_pack_price == Decimal("4.60")
 
 
+def test_prices_screen_shows_classification_column_between_resolved_price_and_source(qtbot, monkeypatch):
+    monkeypatch.setattr(prices.product_service, "list_products", lambda: [
+        FakeProduct("cheap", "Cheap Booster"), FakeProduct("mid", "Mid Booster"),
+        FakeProduct("pricey", "Pricey Booster"), FakeProduct("unpriced", "Unpriced Booster"),
+    ])
+
+    class FakePrice:
+        def __init__(self, price):
+            self.raw_loose_pack_market_price = price
+            self.raw_box_market_price = None
+            self.resolved_pack_price = price
+            self.resolved_price_source = "LOOSE_PACK_MARKET"
+            self.price_status = "OK"
+            self.last_successful_refresh_at = None
+
+    monkeypatch.setattr(prices.price_repo, "list_all_current_prices", lambda: {
+        "cheap": FakePrice(Decimal("4.60")), "mid": FakePrice(Decimal("15.00")),
+        "pricey": FakePrice(Decimal("100.00")),
+    })
+
+    screen = prices.PricesScreen(FakeUser())
+    qtbot.addWidget(screen)
+
+    headers = [screen.table.horizontalHeaderItem(i).text() for i in range(screen.table.columnCount())]
+    assert headers[3] == "Resolved Price"
+    assert headers[4] == "Classification"
+    assert headers[5] == "Source"
+
+    by_name = {screen.table.item(r, 0).text(): screen.table.item(r, 4).text() for r in range(screen.table.rowCount())}
+    assert by_name["Cheap Booster"] == "LOW"
+    assert by_name["Mid Booster"] == "MID"
+    assert by_name["Pricey Booster"] == "HIGH"
+    assert by_name["Unpriced Booster"] == ""
+
+
 def test_my_inventory_screen_selection_survives_sort(qtbot, monkeypatch):
     rows = [
         {

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from elysium.models.breaks import STATUS_ACTIVE as BREAK_STATUS_ACTIVE
 from elysium.models.breaks import STATUS_DELETED, STATUS_ENDED_EDITABLE
+from elysium.models.prices import CLASSIFICATION_HIGH, CLASSIFICATION_LOW, CLASSIFICATION_MID, classify_price
 from elysium.repositories import streamer_repository as streamer_repo
 from elysium.services import (
     break_service,
@@ -306,12 +307,30 @@ def _columns_for_width(available_width: int) -> int:
     return max(MIN_GRID_COLUMNS, int(columns))
 
 
+_CLASSIFICATION_BANNER_COLOR = {
+    CLASSIFICATION_LOW: "#fff6cc",   # light yellow
+    CLASSIFICATION_MID: "#ffe0b3",   # light orange
+    CLASSIFICATION_HIGH: "#ffd0cc",  # light red
+}
+
+
 class BreakProductTile(QFrame):
-    """LLD 14.2/14.3: a visual product tile, clickable to add one pack, plus
-    explicit +/- controls. Rebuilding tiles is always deferred (see
+    """LLD 14.2/14.3: a visual product tile, clickable to add one pack
+    (left-click) or remove one (right-click) -- no separate +/- buttons, so
+    the only way to change a quantity is the click gesture on the image
+    itself. Rebuilding tiles is always deferred (see
     StreamsScreen._change_quantity) rather than done synchronously inside a
-    button's own click handler -- destroying a widget mid-signal is a real
-    crash risk in Qt, and it's exactly what used to happen here."""
+    click handler -- destroying a widget mid-signal is a real crash risk in
+    Qt, and it's exactly what used to happen here.
+
+    The banner color reflects the price classification (LOW/MID/HIGH, local
+    feature request, no LLD section) so cheap/mid/expensive packs are
+    distinguishable at a glance before ever reading the price. Selecting a
+    tile (quantity > 0 in the current break) overrides that with a solid
+    black background instead of tinting it -- deliberately more emphatic
+    than a colored border, since during a fast-moving stream "is this one
+    selected" needs to read instantly. Grid placement (selected tiles
+    sorted to the front) is handled by the caller, not this tile."""
 
     def __init__(self, product_id: str, name: str, image_path, unit_price: Decimal,
                  available: int, selected: int, enabled: bool, on_add, on_remove):
@@ -320,7 +339,7 @@ class BreakProductTile(QFrame):
         self.product_name = name
 
         self.setFixedWidth(TILE_WIDTH)
-        self._apply_border_style(selected > 0)
+        self._apply_style(unit_price, selected > 0)
 
         layout = QVBoxLayout()
         layout.setAlignment(Qt.AlignTop)
@@ -356,48 +375,57 @@ class BreakProductTile(QFrame):
         name_label.setWordWrap(True)
         name_label.setAlignment(Qt.AlignTop)
         name_label.setFixedHeight(TILE_NAME_HEIGHT)
+        name_label.setObjectName("tileName")
         name_label.setStyleSheet("font-weight: bold; font-size: 11px;")
+
+        classification = classify_price(unit_price)
+        classification_label = QLabel(classification or "")
+        classification_label.setAlignment(Qt.AlignCenter)
+        classification_label.setObjectName("tileClassification")
+        classification_label.setStyleSheet("font-weight: bold; font-size: 11px;")
 
         info_label = QLabel(f"Available: {available}   In this break: {selected}")
         info_label.setWordWrap(True)
+        info_label.setObjectName("tileInfo")
         info_label.setStyleSheet("font-size: 10px;")
 
         price_label = QLabel(f"${unit_price:.2f} / pack")
+        price_label.setObjectName("tilePrice")
         price_label.setStyleSheet("font-weight: bold; font-size: 11px;")
-
-        button_row = QHBoxLayout()
-        minus_button = QPushButton("-")
-        minus_button.setEnabled(enabled and selected > 0)
-        minus_button.clicked.connect(lambda: on_remove(product_id))
-        plus_button = QPushButton("+")
-        plus_button.setEnabled(can_add)
-        plus_button.clicked.connect(lambda: on_add(product_id))
-        button_row.addWidget(minus_button)
-        button_row.addWidget(plus_button)
 
         layout.addWidget(image_label)
         layout.addWidget(name_label)
+        layout.addWidget(classification_label)
         layout.addWidget(info_label)
         layout.addWidget(price_label)
-        layout.addLayout(button_row)
 
         self.setLayout(layout)
 
-    def _apply_border_style(self, is_selected: bool):
-        # Visual confirmation that a product has packs selected in the
-        # current break -- border goes from neutral gray to a thick, vivid
-        # green. Previously 2px in a muted green, which was too subtle to
-        # notice at a glance during a fast-moving live stream; also tints
-        # the background so it reads clearly even at a quick glance.
-        background_color = "#e8f8ec" if is_selected else "white"
-        border_color = "#00c853" if is_selected else "#999999"
-        border_width = 5 if is_selected else 1
+    def _apply_style(self, unit_price: Decimal, is_selected: bool):
+        # Selected overrides the classification banner entirely with a
+        # solid black background and light text -- deliberately more
+        # emphatic than a tinted border, so "is this one selected" reads
+        # instantly during a fast-moving live stream. Unselected shows the
+        # LOW/MID/HIGH banner color, or plain white if the price hasn't
+        # resolved yet (classify_price returns None).
+        if is_selected:
+            background_color = "#000000"
+            border_color = "#000000"
+            text_color = "#ffffff"
+            border_width = 5
+        else:
+            classification = classify_price(unit_price)
+            background_color = _CLASSIFICATION_BANNER_COLOR.get(classification, "white")
+            border_color = "#999999"
+            text_color = "black"
+            border_width = 1
+
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {background_color}; border: {border_width}px solid {border_color};
                 border-radius: 8px; padding: 6px;
             }}
-            QLabel {{ color: black; background-color: transparent; border: none; }}
+            QLabel {{ color: {text_color}; background-color: transparent; border: none; }}
         """)
 
 
@@ -813,6 +841,11 @@ class StreamsScreen(QWidget):
                 if search_text in e["product_name_at_snapshot"].lower()
                 or search_text in (e.get("set_code") or "").lower()
             ]
+        # Selected tiles (quantity > 0 in the current break) sort to the
+        # front so they land at the top-left of the grid -- a stable sort,
+        # so within "selected" and "not selected" the relative order is
+        # otherwise unchanged.
+        entries = sorted(entries, key=lambda e: 0 if current_lines.get(e["product_id"], 0) > 0 else 1)
         columns = self._compute_pack_columns()
         self._last_pack_columns = columns
         if self._pack_grid_trailing_column is not None:

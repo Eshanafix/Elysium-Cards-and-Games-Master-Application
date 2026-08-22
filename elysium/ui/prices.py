@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from elysium.models.prices import STATUS_AMBIGUOUS, STATUS_UNRESOLVED
+from elysium.models.prices import STATUS_AMBIGUOUS, STATUS_UNRESOLVED, classify_price
 from elysium.repositories import price_repository as price_repo
 from elysium.services import product_service, pricing_service
 from elysium.ui.background import run_worker, safe_callback
@@ -104,9 +104,9 @@ class PricesScreen(QWidget):
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Product", "Raw Loose", "Raw Box", "Resolved Price", "Source", "Status", "Last Refresh"]
+            ["Product", "Raw Loose", "Raw Box", "Resolved Price", "Classification", "Source", "Status", "Last Refresh"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -154,13 +154,14 @@ class PricesScreen(QWidget):
                 self._fmt(price.raw_box_market_price if price else None),
                 price.raw_box_market_price if price else None,
             ))
+            resolved_price = price.resolved_pack_price if price else None
             self.table.setItem(row, 3, NumericTableWidgetItem(
-                self._fmt(price.resolved_pack_price if price else None),
-                price.resolved_pack_price if price else None,
+                self._fmt(resolved_price), resolved_price,
             ))
-            self.table.setItem(row, 4, QTableWidgetItem(price.resolved_price_source if price else ""))
-            self.table.setItem(row, 5, QTableWidgetItem(price.price_status if price else "UNRESOLVED"))
-            self.table.setItem(row, 6, QTableWidgetItem(str(price.last_successful_refresh_at) if price and price.last_successful_refresh_at else ""))
+            self.table.setItem(row, 4, QTableWidgetItem(classify_price(resolved_price) or ""))
+            self.table.setItem(row, 5, QTableWidgetItem(price.resolved_price_source if price else ""))
+            self.table.setItem(row, 6, QTableWidgetItem(price.price_status if price else "UNRESOLVED"))
+            self.table.setItem(row, 7, QTableWidgetItem(str(price.last_successful_refresh_at) if price and price.last_successful_refresh_at else ""))
 
         # Only auto-size once -- a refresh or manual/previous-price entry
         # calls reload_prices() again, and resizing on every call would keep

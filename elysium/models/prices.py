@@ -22,6 +22,25 @@ STATUS_MANUAL = "MANUAL"
 STATUS_UNRESOLVED = "UNRESOLVED"
 STATUS_AMBIGUOUS = "AMBIGUOUS"
 
+CLASSIFICATION_LOW = "LOW"
+CLASSIFICATION_MID = "MID"
+CLASSIFICATION_HIGH = "HIGH"
+
+
+def classify_price(price: Decimal | None) -> str | None:
+    """Buckets a resolved pack price for at-a-glance value scanning (Shared
+    Sealed Prices' Classification column; the live pack-selection grid's
+    badge and banner color) -- local feature request, no LLD section.
+    Boundaries: under $10 is LOW, $10-$20 inclusive is MID, over $20 is
+    HIGH. None (no resolved price yet) has no classification."""
+    if price is None:
+        return None
+    if price < 10:
+        return CLASSIFICATION_LOW
+    if price <= 20:
+        return CLASSIFICATION_MID
+    return CLASSIFICATION_HIGH
+
 
 def to_decimal128(value: Decimal | None) -> Decimal128 | None:
     return Decimal128(value) if value is not None else None

@@ -64,25 +64,57 @@ def test_holdings_preview_tile_shows_unresolved_price():
     assert any("not yet resolved" in t for t in texts)
 
 
-# --- BreakProductTile selection border ---
+# --- BreakProductTile selection + classification styling ---
 
 
-def test_break_product_tile_border_gray_when_not_selected():
-    tile = streams.BreakProductTile(
-        product_id="p1", name="Test Booster", image_path=None, unit_price=Decimal("4.00"),
+def test_break_product_tile_shows_classification_banner_color_when_not_selected():
+    low = streams.BreakProductTile(  # $4.00 -> LOW
+        product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
         available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
     )
-    assert "#999999" in tile.styleSheet()
-    assert "#00c853" not in tile.styleSheet()
+    mid = streams.BreakProductTile(  # $15.00 -> MID
+        product_id="p2", name="Mid Booster", image_path=None, unit_price=Decimal("15.00"),
+        available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+    )
+    high = streams.BreakProductTile(  # $25.00 -> HIGH
+        product_id="p3", name="Pricey Booster", image_path=None, unit_price=Decimal("25.00"),
+        available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+    )
+
+    assert "#fff6cc" in low.styleSheet()  # light yellow
+    assert "#ffe0b3" in mid.styleSheet()  # light orange
+    assert "#ffd0cc" in high.styleSheet()  # light red
+
+    for tile in (low, mid, high):
+        assert "#000000" not in tile.styleSheet()
 
 
-def test_break_product_tile_border_green_and_thick_when_selected():
+def test_break_product_tile_shows_classification_label_text():
     tile = streams.BreakProductTile(
-        product_id="p1", name="Test Booster", image_path=None, unit_price=Decimal("4.00"),
+        product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
+        available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+    )
+    label = tile.findChild(streams.QLabel, "tileClassification")
+    assert label.text() == "LOW"
+
+
+def test_break_product_tile_is_black_and_bold_when_selected_regardless_of_classification():
+    tile = streams.BreakProductTile(
+        product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
         available=10, selected=2, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
     )
-    assert "#00c853" in tile.styleSheet()
-    assert "5px solid #00c853" in tile.styleSheet()  # thick, not the old barely-visible 2px
+    assert "background-color: #000000" in tile.styleSheet()
+    assert "5px solid #000000" in tile.styleSheet()
+    assert "#fff6cc" not in tile.styleSheet()  # the LOW banner color is overridden, not blended
+
+
+def test_break_product_tile_has_no_plus_minus_buttons():
+    tile = streams.BreakProductTile(
+        product_id="p1", name="Test Booster", image_path=None, unit_price=Decimal("4.00"),
+        available=10, selected=1, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+    )
+    buttons = tile.findChildren(streams.QPushButton)
+    assert buttons == []
 
 
 def test_break_product_tile_shrunk_25_percent_from_original_160():
@@ -223,3 +255,30 @@ def test_pack_search_tolerates_missing_set_code(qtbot, monkeypatch):
     screen.reload_pack_tiles()
 
     assert screen.pack_grid_layout.count() == 1
+
+
+def test_selected_tiles_sort_to_the_front_of_the_grid(qtbot, monkeypatch):
+    """If several tiles have packs selected, they should all land at the
+    top-left of the grid -- a stable sort ahead of everything else, not just
+    whichever happened to already be first in the snapshot."""
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p3", "product_name_at_snapshot": "Charlie Booster", "set_code": "C", "resolved_pack_price": Decimal("3.00")},
+        ],
+    })()
+
+    active_break = type("B", (), {
+        "pack_lines": [{"product_id": "p3", "quantity": 1}],
+        "total_pack_market_value": Decimal("3.00"),
+    })()
+
+    screen = make_screen(
+        qtbot, monkeypatch, stream=stream, active_break=active_break,
+        availability={"p1": 5, "p2": 5, "p3": 5},
+    )
+
+    first_tile = screen.pack_grid_layout.itemAtPosition(0, 0).widget()
+    assert first_tile.product_name == "Charlie Booster"
