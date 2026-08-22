@@ -87,14 +87,23 @@ _BOOSTER_TYPE_BY_WORD = {
 # Booster Pack [Azorius]") -- those still fail to match at all, since
 # "Theme"/"Prerelease" aren't in the qualifier-word alternation above and
 # aren't a bare dash either.
+#
+# Pre-2020 sets with real Collector Boosters (e.g. Throne of Eldraine) name
+# the box "<Set> - Collector Booster Pack Display [N Packs]" -- an extra
+# "Pack" between "Booster" and "Display" that the box pattern didn't
+# originally allow for. Missing that meant the real Collector box never
+# matched either pattern and silently never appeared as a candidate at all
+# (confirmed live: this is exactly how Throne of Eldraine Collector
+# Booster ended up mapped to the *regular* Booster Box instead -- the
+# actual Collector box wasn't in the dropdown to pick from).
 _LOOSE_PATTERN = re.compile(
     r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+Pack|-\s*Booster\s+Pack)"
     r"(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )
 _BOX_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+(?:Box|Display)"
-    r"|-\s*Booster\s+(?:Box|Display))(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
+    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+(?:Pack\s+)?(?:Box|Display)"
+    r"|-\s*Booster\s+(?:Pack\s+)?(?:Box|Display))(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )
 
