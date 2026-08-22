@@ -39,7 +39,7 @@ MASTER_COLLECTIONS = [
                     "image_url", "is_active",
                 ],
                 "properties": {
-                    "booster_type": {"enum": ["DRAFT", "SET", "COLLECTOR", "PLAY", "CLASSIC"]},
+                    "booster_type": {"enum": ["DRAFT", "SET", "COLLECTOR", "PLAY", "CLASSIC", "JUMPSTART"]},
                     "packs_per_box": {"bsonType": "int", "minimum": 1},
                     "english_confirmed": {"bsonType": "bool"},
                     "is_active": {"bsonType": "bool"},
