@@ -345,6 +345,7 @@ class BreakProductTile(QFrame):
         layout.setAlignment(Qt.AlignTop)
 
         image_label = QLabel()
+        image_label.setObjectName("tileImage")
         image_label.setAlignment(Qt.AlignCenter)
         image_label.setFixedSize(TILE_IMAGE_WIDTH, TILE_IMAGE_HEIGHT)
 
@@ -393,7 +394,13 @@ class BreakProductTile(QFrame):
         price_label.setObjectName("tilePrice")
         price_label.setStyleSheet("font-weight: bold; font-size: 11px;")
 
-        layout.addWidget(image_label)
+        # Explicit AlignHCenter -- without it, a fixed-size widget defaults
+        # to left-anchored within the layout's content column. The frame
+        # itself has a fixed outer width, so when the border widens for the
+        # selected state, the content column's left edge moves inward and
+        # the (left-anchored) image visibly shifts right. Centering it
+        # keeps its position stable regardless of border width.
+        layout.addWidget(image_label, alignment=Qt.AlignHCenter)
         layout.addWidget(name_label)
         layout.addWidget(classification_label)
         layout.addWidget(info_label)
@@ -414,7 +421,7 @@ class BreakProductTile(QFrame):
 
         if is_selected:
             border_color = "#000000"
-            border_width = 6
+            border_width = 10
         else:
             border_color = "#999999"
             border_width = 1

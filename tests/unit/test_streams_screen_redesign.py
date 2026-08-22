@@ -110,8 +110,24 @@ def test_break_product_tile_gets_a_thick_black_border_when_selected_but_keeps_it
 
     assert "background-color: #000000" not in selected.styleSheet()
     assert "#ffeb3b" in selected.styleSheet()  # still the LOW banner color, not blacked out
-    assert "6px solid #000000" in selected.styleSheet()
+    assert "10px solid #000000" in selected.styleSheet()
     assert "1px solid #999999" in unselected.styleSheet()
+
+
+def test_break_product_tile_image_stays_centered_regardless_of_selection_border_width():
+    """Regression: the image is fixed-size, so without an explicit
+    alignment it defaults to left-anchored within the layout column. The
+    frame's outer width is fixed, so widening the border for the selected
+    state used to shrink the content column from the left, visibly
+    shifting the (left-anchored) image a few pixels to the right."""
+    for selected in (0, 2):
+        tile = streams.BreakProductTile(
+            product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
+            available=10, selected=selected, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+        )
+        image_label = tile.findChild(streams.QLabel, "tileImage")
+        index = tile.layout().indexOf(image_label)
+        assert tile.layout().itemAt(index).alignment() & streams.Qt.AlignHCenter
 
 
 def test_break_product_tile_has_no_plus_minus_buttons():
