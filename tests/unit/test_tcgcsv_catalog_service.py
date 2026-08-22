@@ -421,6 +421,31 @@ def test_parse_packs_per_box_from_dominaria_style_text():
     assert parse_packs_per_box(product) == 36
 
 
+def test_parse_packs_per_box_from_aetherdrift_style_text_prefers_the_last_match():
+    """Real (excerpted) description text captured live from tcgcsv.com for
+    productId 604250 ("Aetherdrift - Play Booster Display"). Contains an
+    earlier, unrelated "Booster Display contains a 2-card First-Place Box
+    Topper" sentence -- which the anchored pattern also matches, since it's
+    "Booster Display contains" too -- followed by the real summary sentence
+    near the end ("...Play Booster Box contains:<br> 30 ... Play Booster
+    Packs"). Taking the first match (as a naive .search() does) silently
+    returned 2 instead of 30 for this exact live product."""
+    product = {
+        "extendedData": [
+            {
+                "name": "OracleText",
+                "value": (
+                    "Play Boosters are one of the best ways to play Magic with friends.\r\n<br>"
+                    "Plus, each Play Booster Display contains a 2-card First-Place Box Topper.\r\n<br>"
+                    "<br>Aetherdrift - Play Booster Box contains:\r\n<br>. 30 Magic: The Gathering"
+                    "-Aetherdrift Play Booster Packs"
+                ),
+            }
+        ]
+    }
+    assert parse_packs_per_box(product) == 30
+
+
 def test_parse_packs_per_box_ignores_unrelated_contains_phrases():
     """Regression test isolating the exact bug: a "Booster Pack contains:
     N cards" sentence (about the pack's card count) must never be mistaken

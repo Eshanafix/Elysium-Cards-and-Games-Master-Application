@@ -246,15 +246,23 @@ def parse_packs_per_box(product: dict) -> int | None:
     Returns None if no confident match is found -- callers should fall
     back to default_packs_per_box() and always let the admin override
     whatever value is shown.
+
+    Takes the LAST anchored match, not the first. Confirmed live (Aetherdrift
+    productId 604250): the description can contain more than one "Booster
+    Box/Display contains" sentence -- an early one about a box-topper card
+    ("...Play Booster Display contains a 2-card First-Place Box Topper")
+    followed by the real summary sentence near the end ("Aetherdrift - Play
+    Booster Box contains:<br>. 30 ... Play Booster Packs"). Taking the first
+    match silently returned 2 instead of 30 for this product's description.
     """
     for entry in product.get("extendedData", []) or []:
         if entry.get("name") != "OracleText":
             continue
 
-        match = _PACKS_PER_BOX_TEXT_PATTERN.search(entry.get("value", ""))
+        matches = list(_PACKS_PER_BOX_TEXT_PATTERN.finditer(entry.get("value", "")))
 
-        if match:
-            return int(match.group(1))
+        if matches:
+            return int(matches[-1].group(1))
 
     return None
 
