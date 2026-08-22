@@ -96,6 +96,7 @@ class DiscrepanciesScreen(QWidget):
         username_by_id = {user.id: user.username for user in repo.list_users()}
         products_by_id = {p.id: p for p in repo.list_products()}
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.discrepancies))
         for row, d in enumerate(self.discrepancies):
             product = products_by_id.get(d.product_id)
@@ -114,6 +115,7 @@ class DiscrepanciesScreen(QWidget):
         if not self._columns_sized:
             resize_columns_to_contents(self.table)
             self._columns_sized = True
+        self.table.setSortingEnabled(True)
 
     def selected_discrepancy(self):
         rows = self.table.selectionModel().selectedRows()

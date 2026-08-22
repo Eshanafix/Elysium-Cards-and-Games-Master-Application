@@ -19,6 +19,7 @@ from elysium.models.users import ROLE_ADMIN
 from elysium.services import inventory_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
+from elysium.ui.product_search import ProductSearchDialog
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 
@@ -198,13 +199,17 @@ class MasterInventoryScreen(QWidget):
         if ROLE_ADMIN not in self.current_user.roles:
             return
 
-        row = self.selected_row()
+        products = [row["product"] for row in self._rows]
+        picker = ProductSearchDialog(products, self, title="Add Inventory: Select Product")
 
-        if not row:
-            self.show_message("Select a product first.", error=True)
+        if picker.exec() != QDialog.Accepted:
             return
 
-        product = row["product"]
+        product = picker.selected_product()
+
+        if not product:
+            return
+
         dialog = AddInventoryDialog(product.name, product.packs_per_box, self)
 
         if dialog.exec() != QDialog.Accepted:

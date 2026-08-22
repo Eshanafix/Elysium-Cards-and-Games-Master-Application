@@ -327,6 +327,7 @@ class StreamCorrectionsScreen(QWidget):
 
         self.streams = streamer_repo.list_streams(streamer.streamer_database_name, status=STATUS_COMPLETED)
 
+        self.streams_table.setSortingEnabled(False)
         self.streams_table.setRowCount(len(self.streams))
         for row, stream in enumerate(self.streams):
             self.streams_table.setItem(row, 0, QTableWidgetItem(stream.date or ""))
@@ -341,6 +342,7 @@ class StreamCorrectionsScreen(QWidget):
         if not self._streams_columns_sized:
             resize_columns_to_contents(self.streams_table)
             self._streams_columns_sized = True
+        self.streams_table.setSortingEnabled(True)
 
     def on_stream_selected(self):
         rows = self.streams_table.selectionModel().selectedRows()

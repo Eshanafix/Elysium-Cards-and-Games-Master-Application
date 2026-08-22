@@ -186,6 +186,7 @@ class AuditHistoryScreen(QWidget):
 
         username_by_id = {u.id: u.username for u in repo.list_users()}
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.events))
         for row, event in enumerate(self.events):
             for col, column in enumerate(_COLUMNS):
@@ -195,12 +196,14 @@ class AuditHistoryScreen(QWidget):
                 if hasattr(value, "to_decimal"):
                     value = value.to_decimal()
                 self.table.setItem(row, col, QTableWidgetItem("" if value is None else str(value)))
+            self.table.item(row, 0).setData(1000, event.get("event_id"))
 
         # Only auto-size once -- Run/filter changes call reload() repeatedly,
         # and resizing on every call would keep undoing a manually-widened column.
         if not self._columns_sized:
             resize_columns_to_contents(self.table)
             self._columns_sized = True
+        self.table.setSortingEnabled(True)
         self.show_message(f"{len(self.events)} event(s).", error=False)
 
     def selected_event(self) -> dict | None:
@@ -209,7 +212,8 @@ class AuditHistoryScreen(QWidget):
         if not rows:
             return None
 
-        return self.events[rows[0].row()]
+        event_id = self.table.item(rows[0].row(), 0).data(1000)
+        return next((e for e in self.events if e.get("event_id") == event_id), None)
 
     def edit_selected_reason(self):
         event = self.selected_event()

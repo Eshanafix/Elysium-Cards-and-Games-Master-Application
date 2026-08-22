@@ -137,6 +137,7 @@ class UsersScreen(QWidget):
     def reload_users(self):
         users = repo.list_users()
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(users))
 
         for row, user in enumerate(users):
@@ -152,6 +153,7 @@ class UsersScreen(QWidget):
         if not self._columns_sized:
             resize_columns_to_contents(self.table)
             self._columns_sized = True
+        self.table.setSortingEnabled(True)
 
     def selected_user(self):
         rows = self.table.selectionModel().selectedRows()

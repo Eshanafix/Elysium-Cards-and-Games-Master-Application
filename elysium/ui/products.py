@@ -498,12 +498,15 @@ class ProductsScreen(QWidget):
 
     def reload_products(self):
         products = product_service.list_products()
-        self._products_by_row = products
+        self._products_by_id = {product.id: product for product in products}
 
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(products))
 
         for row, product in enumerate(products):
-            self.table.setItem(row, 0, QTableWidgetItem(product.name))
+            name_item = QTableWidgetItem(product.name)
+            name_item.setData(1000, product.id)
+            self.table.setItem(row, 0, name_item)
             self.table.setItem(row, 1, QTableWidgetItem(product.booster_type))
             self.table.setItem(row, 2, QTableWidgetItem(str(product.packs_per_box)))
             self.table.setItem(row, 3, QTableWidgetItem("Yes" if product.is_active else "No"))
@@ -516,6 +519,7 @@ class ProductsScreen(QWidget):
         if not self._columns_sized:
             resize_columns_to_contents(self.table)
             self._columns_sized = True
+        self.table.setSortingEnabled(True)
 
     def selected_product(self) -> Product | None:
         rows = self.table.selectionModel().selectedRows()
@@ -523,7 +527,8 @@ class ProductsScreen(QWidget):
         if not rows:
             return None
 
-        return self._products_by_row[rows[0].row()]
+        product_id = self.table.item(rows[0].row(), 0).data(1000)
+        return self._products_by_id.get(product_id)
 
     def open_create_dialog(self):
         dialog = ProductDialog(self)

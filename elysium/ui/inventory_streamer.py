@@ -23,22 +23,23 @@ from elysium.repositories import master_repository as repo
 from elysium.services import inventory_service, product_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
+from elysium.ui.product_search import ProductSearchDialog
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
 
 
 class ClaimInventoryDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Claim Received Inventory")
+    """Quantity entry for a claim, once a product has already been chosen via
+    ProductSearchDialog -- kept as a separate step (rather than a product
+    combo box inside this same dialog) so picking the product is a focused
+    search instead of scanning a 90+ item dropdown that used to take up the
+    whole screen."""
 
-        self._products = [p for p in product_service.list_products() if p.is_active]
+    def __init__(self, product, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Claim Received Inventory: {product.name}")
+        self.product = product
 
         layout = QVBoxLayout()
-
-        self.product_combo = QComboBox()
-        for product in self._products:
-            self.product_combo.addItem(product.name, product)
-        self.product_combo.currentIndexChanged.connect(self.update_converted_label)
 
         self.boxes_input = SelectAllSpinBox()
         self.boxes_input.setRange(0, 9999)
@@ -54,8 +55,7 @@ class ClaimInventoryDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
-        layout.addWidget(QLabel("Product:"))
-        layout.addWidget(self.product_combo)
+        layout.addWidget(QLabel(f"Packs per box: {product.packs_per_box}"))
         layout.addWidget(QLabel("Boxes:"))
         layout.addWidget(self.boxes_input)
         layout.addWidget(QLabel("Additional loose packs:"))
@@ -66,25 +66,15 @@ class ClaimInventoryDialog(QDialog):
         self.setLayout(layout)
         self.update_converted_label()
 
-    def selected_product(self):
-        return self.product_combo.currentData()
-
     def update_converted_label(self):
-        product = self.selected_product()
-
-        if not product:
-            self.converted_label.setText("No products available.")
-            return
-
         packs = inventory_service.box_to_packs(
-            self.boxes_input.value(), self.loose_packs_input.value(), product.packs_per_box
+            self.boxes_input.value(), self.loose_packs_input.value(), self.product.packs_per_box
         )
-        self.converted_label.setText(f"Will claim: {packs} packs (packs/box: {product.packs_per_box})")
+        self.converted_label.setText(f"Will claim: {packs} packs")
 
     def converted_packs(self) -> int:
-        product = self.selected_product()
         return inventory_service.box_to_packs(
-            self.boxes_input.value(), self.loose_packs_input.value(), product.packs_per_box
+            self.boxes_input.value(), self.loose_packs_input.value(), self.product.packs_per_box
         )
 
 
@@ -201,15 +191,20 @@ class MyInventoryScreen(QWidget):
         return self._rows_by_id.get(product_id)
 
     def claim_inventory(self):
-        dialog = ClaimInventoryDialog(self)
+        products = [p for p in product_service.list_products() if p.is_active]
+        picker = ProductSearchDialog(products, self, title="Claim Received Inventory: Select Product")
 
-        if dialog.exec() != QDialog.Accepted:
+        if picker.exec() != QDialog.Accepted:
             return
 
-        product = dialog.selected_product()
+        product = picker.selected_product()
 
         if not product:
-            self.show_message("No product selected.", error=True)
+            return
+
+        dialog = ClaimInventoryDialog(product, self)
+
+        if dialog.exec() != QDialog.Accepted:
             return
 
         packs = dialog.converted_packs()
