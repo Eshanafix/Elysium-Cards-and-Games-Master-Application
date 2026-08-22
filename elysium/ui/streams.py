@@ -308,9 +308,9 @@ def _columns_for_width(available_width: int) -> int:
 
 
 _CLASSIFICATION_BANNER_COLOR = {
-    CLASSIFICATION_LOW: "#fff6cc",   # light yellow
-    CLASSIFICATION_MID: "#ffe0b3",   # light orange
-    CLASSIFICATION_HIGH: "#ffd0cc",  # light red
+    CLASSIFICATION_LOW: "#ffeb3b",   # yellow
+    CLASSIFICATION_MID: "#ff9800",   # orange
+    CLASSIFICATION_HIGH: "#f44336",  # red
 }
 
 
@@ -326,11 +326,11 @@ class BreakProductTile(QFrame):
     The banner color reflects the price classification (LOW/MID/HIGH, local
     feature request, no LLD section) so cheap/mid/expensive packs are
     distinguishable at a glance before ever reading the price. Selecting a
-    tile (quantity > 0 in the current break) overrides that with a solid
-    black background instead of tinting it -- deliberately more emphatic
-    than a colored border, since during a fast-moving stream "is this one
-    selected" needs to read instantly. Grid placement (selected tiles
-    sorted to the front) is handled by the caller, not this tile."""
+    tile (quantity > 0 in the current break) keeps that banner color but
+    adds a thick black border -- deliberately more emphatic than the old
+    thin colored border, without blacking out the tile entirely. Grid
+    placement (selected tiles sorted to the front) is handled by the
+    caller, not this tile."""
 
     def __init__(self, product_id: str, name: str, image_path, unit_price: Decimal,
                  available: int, selected: int, enabled: bool, on_add, on_remove):
@@ -402,22 +402,21 @@ class BreakProductTile(QFrame):
         self.setLayout(layout)
 
     def _apply_style(self, unit_price: Decimal, is_selected: bool):
-        # Selected overrides the classification banner entirely with a
-        # solid black background and light text -- deliberately more
-        # emphatic than a tinted border, so "is this one selected" reads
-        # instantly during a fast-moving live stream. Unselected shows the
-        # LOW/MID/HIGH banner color, or plain white if the price hasn't
-        # resolved yet (classify_price returns None).
+        # The classification banner color always shows, selected or not --
+        # selecting a tile just adds a thick black border on top of it
+        # (rather than replacing the banner with a solid black fill), so
+        # "is this one selected" reads instantly without losing the
+        # LOW/MID/HIGH color underneath. Unpriced products (classify_price
+        # returns None) stay plain white.
+        classification = classify_price(unit_price)
+        background_color = _CLASSIFICATION_BANNER_COLOR.get(classification, "white")
+        text_color = "black"
+
         if is_selected:
-            background_color = "#000000"
             border_color = "#000000"
-            text_color = "#ffffff"
-            border_width = 5
+            border_width = 6
         else:
-            classification = classify_price(unit_price)
-            background_color = _CLASSIFICATION_BANNER_COLOR.get(classification, "white")
             border_color = "#999999"
-            text_color = "black"
             border_width = 1
 
         self.setStyleSheet(f"""

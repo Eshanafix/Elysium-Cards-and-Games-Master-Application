@@ -81,9 +81,9 @@ def test_break_product_tile_shows_classification_banner_color_when_not_selected(
         available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
     )
 
-    assert "#fff6cc" in low.styleSheet()  # light yellow
-    assert "#ffe0b3" in mid.styleSheet()  # light orange
-    assert "#ffd0cc" in high.styleSheet()  # light red
+    assert "#ffeb3b" in low.styleSheet()  # yellow
+    assert "#ff9800" in mid.styleSheet()  # orange
+    assert "#f44336" in high.styleSheet()  # red
 
     for tile in (low, mid, high):
         assert "#000000" not in tile.styleSheet()
@@ -98,14 +98,20 @@ def test_break_product_tile_shows_classification_label_text():
     assert label.text() == "LOW"
 
 
-def test_break_product_tile_is_black_and_bold_when_selected_regardless_of_classification():
-    tile = streams.BreakProductTile(
+def test_break_product_tile_gets_a_thick_black_border_when_selected_but_keeps_its_banner_color():
+    unselected = streams.BreakProductTile(
+        product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
+        available=10, selected=0, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
+    )
+    selected = streams.BreakProductTile(
         product_id="p1", name="Cheap Booster", image_path=None, unit_price=Decimal("4.00"),
         available=10, selected=2, enabled=True, on_add=lambda pid: None, on_remove=lambda pid: None,
     )
-    assert "background-color: #000000" in tile.styleSheet()
-    assert "5px solid #000000" in tile.styleSheet()
-    assert "#fff6cc" not in tile.styleSheet()  # the LOW banner color is overridden, not blended
+
+    assert "background-color: #000000" not in selected.styleSheet()
+    assert "#ffeb3b" in selected.styleSheet()  # still the LOW banner color, not blacked out
+    assert "6px solid #000000" in selected.styleSheet()
+    assert "1px solid #999999" in unselected.styleSheet()
 
 
 def test_break_product_tile_has_no_plus_minus_buttons():
