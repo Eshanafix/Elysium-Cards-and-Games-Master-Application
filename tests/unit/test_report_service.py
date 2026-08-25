@@ -52,6 +52,15 @@ def test_money_converts_decimal_to_str():
     assert report_service._money(Decimal("12.50")) == "12.50"
 
 
+def test_money_caps_at_two_decimal_places():
+    """A raw Decimal division (box price / packs per box, or a derived
+    profit sum) can carry many more digits than 2 -- report tables/CSV
+    exports must round to 2 places like every other money display in the
+    app, not show the full raw precision."""
+    assert report_service._money(Decimal("4.7075")) == "4.71"
+    assert report_service._money(Decimal("763.3492499999999999999999999")) == "763.35"
+
+
 def test_money_passes_through_none():
     assert report_service._money(None) is None
 

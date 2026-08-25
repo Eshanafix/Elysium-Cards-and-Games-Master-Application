@@ -61,7 +61,11 @@ REPORT_DEFINITIONS: list[ReportDefinition] = [
     ReportDefinition(
         key="streams",
         label="Streams",
-        columns=["stream_id", "streamer_username", "date", "start_time", "end_time", "status", "number_of_breaks", "sum_of_break_gross", "final_stream_gross", "gross_difference", "stream_pack_market_value", "stream_profit", "stream_profit_margin", "notes", "force_canceled", "correction_count"],
+        # Priority order per feedback: username, date, breaks, break gross,
+        # final stream gross, pack value, stream profit -- what you'd
+        # actually scan for -- then everything else (the long stream_id,
+        # timestamps, status, and the rarer fields) after.
+        columns=["streamer_username", "date", "number_of_breaks", "sum_of_break_gross", "final_stream_gross", "stream_pack_market_value", "stream_profit", "stream_id", "start_time", "end_time", "status", "gross_difference", "stream_profit_margin", "notes", "force_canceled", "correction_count"],
         fetch=report_service.streams_report,
         supports_streamer_filter=True,
         supports_date_range=True,
@@ -69,10 +73,11 @@ REPORT_DEFINITIONS: list[ReportDefinition] = [
     ReportDefinition(
         key="breaks",
         label="Breaks",
-        # streamer_username/sequence_number/status/packs_opened first --
-        # that's what you actually look at; break_id/stream_id (long UUIDs)
-        # moved to the end so they don't dominate the row.
-        columns=["streamer_username", "sequence_number", "name", "status", "packs_opened", "start_time", "end_time", "total_pack_market_value", "break_gross", "break_profit", "break_profit_margin", "notes", "updated_at", "break_id", "stream_id"],
+        # Priority order per feedback: streamer, packs opened, total pack
+        # value, break gross, break profit -- then everything else
+        # (sequence/name/status/timestamps, and the long break_id/stream_id
+        # UUIDs) after.
+        columns=["streamer_username", "packs_opened", "total_pack_market_value", "break_gross", "break_profit", "sequence_number", "name", "status", "start_time", "end_time", "break_profit_margin", "notes", "updated_at", "break_id", "stream_id"],
         fetch=report_service.breaks_report,
         supports_streamer_filter=True,
         supports_date_range=True,

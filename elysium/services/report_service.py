@@ -58,7 +58,12 @@ def _in_range(value, start_date, end_date) -> bool:
 
 
 def _money(value: Decimal | None):
-    return str(value) if value is not None else None
+    # Capped to 2 decimal places for display/export -- a raw Decimal
+    # division (e.g. box price / packs per box, or a derived profit sum)
+    # can carry many more digits than that, which read as noise in a report
+    # table/CSV. Every other screen in the app already formats money this
+    # way (f"${x:.2f}"); report_service just never matched it.
+    return f"{value:.2f}" if value is not None else None
 
 
 def _pack_summary(pack_lines: list[dict], products_by_id: dict) -> str:
