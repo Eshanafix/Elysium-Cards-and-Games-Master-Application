@@ -139,11 +139,17 @@ def _resolve_and_store_product_price(
 
     price_repo.increment_refresh_session_counters(session_id, products_checked=1)
 
-    if loose_price is not None:
-        resolved_price, source, status = loose_price, SOURCE_LOOSE_PACK_MARKET, STATUS_OK
-    elif box_price is not None:
+    # Box-derived is preferred over loose-pack market price, not just a
+    # fallback for when loose is missing (business decision, 2026-08-24):
+    # a box's per-pack price reflects the bulk-buy rate, which is what this
+    # business actually pays/values inventory at -- loose-pack listings run
+    # higher across most of the catalog (~90% of products checked live were
+    # cheaper priced off the box).
+    if box_price is not None:
         resolved_price = box_price / product.packs_per_box
         source, status = SOURCE_DERIVED_FROM_BOX_MARKET, STATUS_OK
+    elif loose_price is not None:
+        resolved_price, source, status = loose_price, SOURCE_LOOSE_PACK_MARKET, STATUS_OK
     elif loose_ambiguous or box_ambiguous:
         resolved_price, source, status = None, None, STATUS_AMBIGUOUS
     else:
