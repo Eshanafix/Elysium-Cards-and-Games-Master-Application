@@ -17,7 +17,7 @@
 ; instead of an in-place upgrade.
 
 #define MyAppName "Elysium Master Application"
-#define MyAppVersion "1.0.13"
+#define MyAppVersion "1.0.14"
 #define MyAppPublisher "Elysium"
 #define MyAppExeName "ElysiumMasterApplication.exe"
 
@@ -26,6 +26,14 @@ AppId={{B2C961B6-AB6B-4314-8C2F-C56F5BB144A5}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+; Per-user install, no admin rights required -- team members are not
+; guaranteed to be admins on their own machines. {autopf}/{autodesktop}
+; below already resolve to the per-user Program-Files-equivalent and the
+; user's own desktop (rather than the machine-wide ones) once this is set;
+; no other path needs to change. This also means the uninstall registry
+; entry lives in HKCU, separate from any earlier admin-mode install of this
+; same AppId -- see docs/IMPLEMENTATION_PLAN.md packaging notes.
+PrivilegesRequired=lowest
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
