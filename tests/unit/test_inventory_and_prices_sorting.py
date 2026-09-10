@@ -17,9 +17,10 @@ class FakeUser:
 
 
 class FakeProduct:
-    def __init__(self, id, name):
+    def __init__(self, id, name, booster_type="DRAFT"):
         self.id = id
         self.name = name
+        self.booster_type = booster_type
 
 
 def test_prices_screen_sorting_enabled_and_selection_survives_sort(qtbot, monkeypatch):
@@ -109,7 +110,7 @@ def test_my_inventory_screen_selection_survives_sort(qtbot, monkeypatch):
 
     assert screen.table.isSortingEnabled()
 
-    screen.table.sortItems(2)  # Price column, ascending
+    screen.table.sortItems(3)  # Price column, ascending
     assert screen.table.item(0, 0).text() == "Cheap Booster"
 
     screen.table.selectRow(0)
@@ -148,7 +149,7 @@ def test_master_inventory_screen_selection_survives_sort(qtbot, monkeypatch):
 
     assert screen.table.isSortingEnabled()
 
-    screen.table.sortItems(4)  # Price column, ascending
+    screen.table.sortItems(5)  # Price column, ascending
     assert screen.table.item(0, 0).text() == "Cheap Booster"
 
     screen.table.selectRow(0)

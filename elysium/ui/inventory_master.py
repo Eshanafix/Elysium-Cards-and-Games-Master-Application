@@ -15,12 +15,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from elysium.models.products import BOOSTER_TYPE_SORT_RANK
 from elysium.models.users import ROLE_ADMIN
 from elysium.services import inventory_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
 from elysium.ui.product_search import ProductSearchDialog
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
+
+
+def _pack_type_item(product) -> NumericTableWidgetItem:
+    return NumericTableWidgetItem(product.booster_type, BOOSTER_TYPE_SORT_RANK.get(product.booster_type, 999))
 
 
 class AddInventoryDialog(QDialog):
@@ -124,9 +129,9 @@ class MasterInventoryScreen(QWidget):
         button_row.addWidget(self.add_button)
         button_row.addWidget(self.reduce_button)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Product", "Total", "Unassigned", "Assigned", "Price", "Market Value", "Allocations"]
+            ["Product", "Pack Type", "Total", "Unassigned", "Assigned", "Price", "Market Value", "Allocations"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -168,16 +173,17 @@ class MasterInventoryScreen(QWidget):
             name_item = QTableWidgetItem(product.name)
             name_item.setData(1000, product.id)
             self.table.setItem(row_index, 0, name_item)
-            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["total_packs"]), row["total_packs"]))
-            self.table.setItem(row_index, 2, NumericTableWidgetItem(str(row["unassigned_packs"]), row["unassigned_packs"]))
-            self.table.setItem(row_index, 3, NumericTableWidgetItem(str(row["assigned_packs"]), row["assigned_packs"]))
-            self.table.setItem(row_index, 4, NumericTableWidgetItem(
+            self.table.setItem(row_index, 1, _pack_type_item(product))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(str(row["total_packs"]), row["total_packs"]))
+            self.table.setItem(row_index, 3, NumericTableWidgetItem(str(row["unassigned_packs"]), row["unassigned_packs"]))
+            self.table.setItem(row_index, 4, NumericTableWidgetItem(str(row["assigned_packs"]), row["assigned_packs"]))
+            self.table.setItem(row_index, 5, NumericTableWidgetItem(
                 f"${price:.2f}" if price is not None else row["price_status"], price,
             ))
-            self.table.setItem(row_index, 5, NumericTableWidgetItem(
+            self.table.setItem(row_index, 6, NumericTableWidgetItem(
                 f"${market_value:.2f}" if market_value is not None else "", market_value,
             ))
-            self.table.setItem(row_index, 6, QTableWidgetItem(allocation_summary))
+            self.table.setItem(row_index, 7, QTableWidgetItem(allocation_summary))
 
         # Only auto-size once -- Add/Reduce Inventory call reload() again,
         # and resizing on every call would keep undoing a manually-widened column.

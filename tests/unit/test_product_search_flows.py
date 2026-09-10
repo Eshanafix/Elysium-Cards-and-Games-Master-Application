@@ -12,11 +12,12 @@ from elysium.ui import inventory_master, inventory_streamer
 
 
 class FakeProduct:
-    def __init__(self, id, name, packs_per_box=36, is_active=True):
+    def __init__(self, id, name, packs_per_box=36, is_active=True, booster_type="DRAFT"):
         self.id = id
         self.name = name
         self.packs_per_box = packs_per_box
         self.is_active = is_active
+        self.booster_type = booster_type
 
 
 class FakeAdmin:

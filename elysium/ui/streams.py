@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -28,7 +30,8 @@ from PySide6.QtWidgets import (
 
 from elysium.models.breaks import STATUS_ACTIVE as BREAK_STATUS_ACTIVE
 from elysium.models.breaks import STATUS_DELETED, STATUS_ENDED_EDITABLE
-from elysium.models.prices import CLASSIFICATION_HIGH, CLASSIFICATION_LOW, CLASSIFICATION_MID, classify_price
+from elysium.models.prices import CLASSIFICATION_COLOR, classify_price
+from elysium.repositories import price_repository as price_repo
 from elysium.repositories import streamer_repository as streamer_repo
 from elysium.services import (
     break_service,
@@ -313,11 +316,10 @@ def _columns_for_width(available_width: int) -> int:
     return max(MIN_GRID_COLUMNS, int(columns))
 
 
-_CLASSIFICATION_BANNER_COLOR = {
-    CLASSIFICATION_LOW: "#bdc05c",   # yellow
-    CLASSIFICATION_MID: "#fa9246",   # orange
-    CLASSIFICATION_HIGH: "#fb5445",  # red
-}
+# Colors live in elysium.models.prices.CLASSIFICATION_COLOR now -- shared
+# with every Classification table column (Prices screen, streamer inventory)
+# so they can never drift out of sync with the tile banners here.
+_CLASSIFICATION_BANNER_COLOR = CLASSIFICATION_COLOR
 
 
 class BreakProductTile(QFrame):
@@ -405,7 +407,12 @@ class BreakProductTile(QFrame):
         info_label.setObjectName("tileInfo")
         info_label.setStyleSheet("font-size: 10px;")
 
-        price_label = QLabel(f"${unit_price:.2f} / pack")
+        # unit_price shouldn't actually be None here -- a stream can't start
+        # while any held pack still has an unresolved price -- but guard it
+        # anyway rather than crash the whole grid on an unexpected gap
+        # (matches HoldingsPreviewTile's handling of the same case).
+        price_text = f"${unit_price:.2f} / pack" if unit_price is not None else "Price not yet resolved"
+        price_label = QLabel(price_text)
         price_label.setObjectName("tilePrice")
         price_label.setStyleSheet("font-weight: bold; font-size: 11px;")
 
@@ -534,6 +541,9 @@ class StreamsScreen(QWidget):
         self._holdings_grid_stretch_state: dict = {}
         self._price_refresh_worker = None
         self._pack_tile_reload_pending = False
+        self._pre_stream_progress_session_id = None
+        self._pre_stream_progress_timer = QTimer(self)
+        self._pre_stream_progress_timer.timeout.connect(self._poll_pre_stream_refresh_progress)
         # Responsive column count (see _columns_for_width): _last_*_columns
         # tracks what the grid was last built with so a resize only
         # triggers an actual rebuild when the column count would change,
@@ -589,8 +599,16 @@ class StreamsScreen(QWidget):
         refresh_banner_row = QHBoxLayout()
         refresh_banner_row.addWidget(self.refresh_prices_banner_label, stretch=1)
         refresh_banner_row.addWidget(self.refresh_prices_now_button)
+
+        self.refresh_prices_progress_bar = QProgressBar()
+        self.refresh_prices_progress_bar.setVisible(False)
+
+        refresh_banner_col = QVBoxLayout()
+        refresh_banner_col.setContentsMargins(0, 0, 0, 0)
+        refresh_banner_col.addLayout(refresh_banner_row)
+        refresh_banner_col.addWidget(self.refresh_prices_progress_bar)
         self.refresh_prices_banner_container = QWidget()
-        self.refresh_prices_banner_container.setLayout(refresh_banner_row)
+        self.refresh_prices_banner_container.setLayout(refresh_banner_col)
 
         self.start_button = QPushButton("Start Stream")
         self.start_button.setStyleSheet("""
@@ -632,6 +650,19 @@ class StreamsScreen(QWidget):
         self.pack_search_input.setPlaceholderText("Filter your packs by name or set code...")
         self.pack_search_input.textChanged.connect(self._schedule_pack_search)
         pack_search_row.addWidget(self.pack_search_input, stretch=1)
+
+        pack_search_row.addWidget(QLabel("Sort:"))
+        self.pack_sort_combo = QComboBox()
+        # Selected packs (quantity > 0 in the current break) always sort to
+        # the top-left regardless of this setting (LLD-adjacent local
+        # feature request) -- price sort only reorders within the
+        # selected/unselected groups, it never overrides that grouping.
+        self.pack_sort_combo.addItem("Default order", "default")
+        self.pack_sort_combo.addItem("Price: High to Low", "price_desc")
+        self.pack_sort_combo.addItem("Price: Low to High", "price_asc")
+        self.pack_sort_combo.currentIndexChanged.connect(self.reload_pack_tiles)
+        pack_search_row.addWidget(self.pack_sort_combo)
+
         self.pack_search_row_container.setLayout(pack_search_row)
 
         self._pack_search_timer = QTimer()
@@ -832,17 +863,45 @@ class StreamsScreen(QWidget):
         self.refresh_prices_now_button.setEnabled(False)
         self.show_message("Refreshing prices...", error=False)
 
+        # Same determinate-progress technique as PricesScreen.start_refresh
+        # -- total product count is known upfront, and the refresh session
+        # document (once the worker thread has acquired the lock) tracks
+        # products_checked as it goes.
+        total = len(product_service.list_products())
+        self.refresh_prices_progress_bar.setRange(0, max(total, 1))
+        self.refresh_prices_progress_bar.setValue(0)
+        self.refresh_prices_progress_bar.setVisible(True)
+        self._pre_stream_progress_session_id = None
+        self._pre_stream_progress_timer.start(400)
+
         self._price_refresh_worker = PriceRefreshWorker(self.current_user.id)
         self._price_refresh_worker.finished_success.connect(safe_callback(self._on_pre_stream_refresh_finished))
         self._price_refresh_worker.failed.connect(safe_callback(self._on_pre_stream_refresh_failed))
         run_worker(self._price_refresh_worker)
 
+    def _poll_pre_stream_refresh_progress(self):
+        if self._pre_stream_progress_session_id is None:
+            state = lock_service.get_lock_state()
+            if not (state.get("price_refresh_active") and state.get("refresh_session_id")):
+                return
+            self._pre_stream_progress_session_id = state["refresh_session_id"]
+
+        session = price_repo.find_refresh_session(self._pre_stream_progress_session_id)
+        if session:
+            checked = session.get("products_checked", 0)
+            self.refresh_prices_progress_bar.setValue(min(checked, self.refresh_prices_progress_bar.maximum()))
+
     def _on_pre_stream_refresh_finished(self, session_id: str):
+        self._pre_stream_progress_timer.stop()
+        self.refresh_prices_progress_bar.setValue(self.refresh_prices_progress_bar.maximum())
+        self.refresh_prices_progress_bar.setVisible(False)
         self.refresh_prices_now_button.setEnabled(True)
         self.show_message("Prices refreshed.", error=False)
         self.reload_holdings_preview()
 
     def _on_pre_stream_refresh_failed(self, error: str):
+        self._pre_stream_progress_timer.stop()
+        self.refresh_prices_progress_bar.setVisible(False)
         self.refresh_prices_now_button.setEnabled(True)
         self.show_message(f"Price refresh failed: {error}", error=True)
 
@@ -877,6 +936,19 @@ class StreamsScreen(QWidget):
                 if search_text in e["product_name_at_snapshot"].lower()
                 or search_text in (e.get("set_code") or "").lower()
             ]
+        # Price sort (if chosen) is applied first, then the selected-first
+        # sort below is stable, so it only ever reorders *between* the
+        # selected/unselected groups -- the relative price order chosen
+        # here survives within each group. Unpriced entries always sort
+        # last regardless of direction, so a missing price can't jump to
+        # the top under "High to Low".
+        sort_mode = self.pack_sort_combo.currentData()
+        if sort_mode in ("price_desc", "price_asc"):
+            priced = [e for e in entries if e.get("resolved_pack_price") is not None]
+            unpriced = [e for e in entries if e.get("resolved_pack_price") is None]
+            priced.sort(key=lambda e: e["resolved_pack_price"], reverse=(sort_mode == "price_desc"))
+            entries = priced + unpriced
+
         # Selected tiles (quantity > 0 in the current break) sort to the
         # front so they land at the top-left of the grid -- a stable sort,
         # so within "selected" and "not selected" the relative order is

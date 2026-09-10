@@ -4,6 +4,7 @@ read-only "Streamer Inventory" view of any streamer's holdings (LLD 7.1,
 24.3).
 """
 
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from elysium.models.prices import CLASSIFICATION_COLOR, CLASSIFICATION_ORDER, classify_price
+from elysium.models.products import BOOSTER_TYPE_SORT_RANK
 from elysium.models.users import ROLE_STREAMER
 from elysium.repositories import master_repository as repo
 from elysium.services import inventory_service, product_service
@@ -25,6 +28,25 @@ from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
 from elysium.ui.product_search import ProductSearchDialog
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
+
+
+def _pack_type_item(product) -> NumericTableWidgetItem:
+    return NumericTableWidgetItem(product.booster_type, BOOSTER_TYPE_SORT_RANK.get(product.booster_type, 999))
+
+
+def _classification_item(price) -> QTableWidgetItem:
+    classification = classify_price(price)
+    # None (unclassified) sorts last regardless of direction -- see
+    # NumericTableWidgetItem's None-handling.
+    rank = CLASSIFICATION_ORDER.index(classification) if classification else None
+    item = NumericTableWidgetItem(classification or "", rank)
+
+    color = CLASSIFICATION_COLOR.get(classification)
+    if color:
+        item.setBackground(QColor(color))
+        item.setForeground(QColor("black"))
+
+    return item
 
 
 class ClaimInventoryDialog(QDialog):
@@ -128,8 +150,10 @@ class MyInventoryScreen(QWidget):
         button_row.addWidget(self.claim_button)
         button_row.addWidget(self.return_button)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price", "Market Value"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["Product", "Pack Type", "Current Packs", "Price", "Classification", "Market Value"]
+        )
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         make_columns_stretch(self.table)
@@ -165,11 +189,13 @@ class MyInventoryScreen(QWidget):
             name_item = QTableWidgetItem(product.name)
             name_item.setData(1000, product.id)
             self.table.setItem(row_index, 0, name_item)
-            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
-            self.table.setItem(row_index, 2, NumericTableWidgetItem(
+            self.table.setItem(row_index, 1, _pack_type_item(product))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
+            self.table.setItem(row_index, 3, NumericTableWidgetItem(
                 f"${price:.2f}" if price is not None else row["price_status"], price,
             ))
-            self.table.setItem(row_index, 3, NumericTableWidgetItem(
+            self.table.setItem(row_index, 4, _classification_item(price))
+            self.table.setItem(row_index, 5, NumericTableWidgetItem(
                 f"${market_value:.2f}" if market_value is not None else "", market_value,
             ))
 
@@ -283,8 +309,8 @@ class StreamerInventoryAdminScreen(QWidget):
             self.streamer_combo.addItem(user.username, user)
         self.streamer_combo.currentIndexChanged.connect(self.reload)
 
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Product", "Current Packs", "Price"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Product", "Pack Type", "Current Packs", "Price", "Classification"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         make_columns_stretch(self.table)
 
@@ -313,10 +339,12 @@ class StreamerInventoryAdminScreen(QWidget):
             price = row["resolved_pack_price"]
 
             self.table.setItem(row_index, 0, QTableWidgetItem(product.name))
-            self.table.setItem(row_index, 1, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
-            self.table.setItem(row_index, 2, NumericTableWidgetItem(
+            self.table.setItem(row_index, 1, _pack_type_item(product))
+            self.table.setItem(row_index, 2, NumericTableWidgetItem(str(row["current_packs"]), row["current_packs"]))
+            self.table.setItem(row_index, 3, NumericTableWidgetItem(
                 f"${price:.2f}" if price is not None else row["price_status"], price,
             ))
+            self.table.setItem(row_index, 4, _classification_item(price))
 
         # Only auto-size once -- the streamer dropdown calls reload() every
         # time it's changed, and resizeColumnsToContents() on every call

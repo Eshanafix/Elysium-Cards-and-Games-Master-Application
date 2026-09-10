@@ -23,6 +23,7 @@ class FakeProduct:
     def __init__(self, id, name):
         self.id = id
         self.name = name
+        self.booster_type = "DRAFT"
 
 
 def make_rows():

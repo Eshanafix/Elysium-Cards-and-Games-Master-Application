@@ -312,3 +312,111 @@ def test_selected_tiles_sort_to_the_front_of_the_grid(qtbot, monkeypatch):
 
     first_tile = screen.pack_grid_layout.itemAtPosition(0, 0).widget()
     assert first_tile.product_name == "Charlie Booster"
+
+
+# --- Pack sort by price ---
+
+
+def _grid_names(screen):
+    names = []
+    for i in range(screen.pack_grid_layout.count()):
+        widget = screen.pack_grid_layout.itemAt(i).widget()
+        if widget is not None:
+            names.append(widget.product_name)
+    return names
+
+
+def test_pack_sort_default_order_is_unaffected(qtbot, monkeypatch):
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": Decimal("10.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("3.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5, "p2": 5})
+
+    assert screen.pack_sort_combo.currentData() == "default"
+    assert _grid_names(screen) == ["Alpha Booster", "Bravo Booster"]
+
+
+def test_pack_sort_price_high_to_low(qtbot, monkeypatch):
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("25.00")},
+            {"product_id": "p3", "product_name_at_snapshot": "Charlie Booster", "set_code": "C", "resolved_pack_price": Decimal("10.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5, "p2": 5, "p3": 5})
+
+    screen.pack_sort_combo.setCurrentIndex(screen.pack_sort_combo.findData("price_desc"))
+
+    assert _grid_names(screen) == ["Bravo Booster", "Charlie Booster", "Alpha Booster"]
+
+
+def test_pack_sort_price_low_to_high(qtbot, monkeypatch):
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": Decimal("3.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("25.00")},
+            {"product_id": "p3", "product_name_at_snapshot": "Charlie Booster", "set_code": "C", "resolved_pack_price": Decimal("10.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5, "p2": 5, "p3": 5})
+
+    screen.pack_sort_combo.setCurrentIndex(screen.pack_sort_combo.findData("price_asc"))
+
+    assert _grid_names(screen) == ["Alpha Booster", "Charlie Booster", "Bravo Booster"]
+
+
+def test_pack_sort_unpriced_entries_always_sort_last(qtbot, monkeypatch):
+    """An unresolved price can't accidentally jump to the top under
+    "High to Low" just because None isn't comparable to a real price."""
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": None},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("25.00")},
+        ],
+    })()
+
+    screen = make_screen(qtbot, monkeypatch, stream=stream, availability={"p1": 5, "p2": 5})
+
+    screen.pack_sort_combo.setCurrentIndex(screen.pack_sort_combo.findData("price_desc"))
+
+    assert _grid_names(screen) == ["Bravo Booster", "Alpha Booster"]
+
+
+def test_pack_sort_still_keeps_selected_tiles_at_the_front(qtbot, monkeypatch):
+    """Price sort only reorders within the selected/unselected groups -- it
+    never overrides "selected tiles always land top-left"."""
+    stream = type("S", (), {
+        "date": "2026-08-08", "start_time": "now", "id": "stream-1",
+        "price_snapshot": [
+            {"product_id": "p1", "product_name_at_snapshot": "Alpha Booster", "set_code": "A", "resolved_pack_price": Decimal("25.00")},
+            {"product_id": "p2", "product_name_at_snapshot": "Bravo Booster", "set_code": "B", "resolved_pack_price": Decimal("15.00")},
+            {"product_id": "p3", "product_name_at_snapshot": "Charlie Booster", "set_code": "C", "resolved_pack_price": Decimal("3.00")},
+        ],
+    })()
+
+    active_break = type("B", (), {
+        "pack_lines": [{"product_id": "p3", "quantity": 1}],
+        "total_pack_market_value": Decimal("3.00"),
+    })()
+
+    screen = make_screen(
+        qtbot, monkeypatch, stream=stream, active_break=active_break,
+        availability={"p1": 5, "p2": 5, "p3": 5},
+    )
+
+    # Ascending-by-price would normally put Charlie ($3) before Bravo ($15)
+    # before Alpha ($25) -- but Charlie is selected, so it still leads.
+    screen.pack_sort_combo.setCurrentIndex(screen.pack_sort_combo.findData("price_asc"))
+
+    assert _grid_names(screen) == ["Charlie Booster", "Bravo Booster", "Alpha Booster"]

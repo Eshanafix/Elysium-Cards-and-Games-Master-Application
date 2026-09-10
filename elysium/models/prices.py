@@ -26,6 +26,21 @@ CLASSIFICATION_LOW = "LOW"
 CLASSIFICATION_MID = "MID"
 CLASSIFICATION_HIGH = "HIGH"
 
+# Display order (also doubles as the sort rank wherever a Classification
+# column is made sortable -- plain alphabetical would read HIGH, LOW, MID,
+# which doesn't track the actual price ordering it represents).
+CLASSIFICATION_ORDER = [CLASSIFICATION_LOW, CLASSIFICATION_MID, CLASSIFICATION_HIGH]
+
+# Single source of truth for the LOW/MID/HIGH banner colors -- shared by the
+# live pack-selection grid (elysium/ui/streams.py's BreakProductTile) and
+# every Classification table column, so a color change only ever needs to
+# happen in one place.
+CLASSIFICATION_COLOR = {
+    CLASSIFICATION_LOW: "#bdc05c",   # yellow
+    CLASSIFICATION_MID: "#fa9246",   # orange
+    CLASSIFICATION_HIGH: "#fb5445",  # red
+}
+
 
 def classify_price(price: Decimal | None) -> str | None:
     """Buckets a resolved pack price for at-a-glance value scanning (Shared

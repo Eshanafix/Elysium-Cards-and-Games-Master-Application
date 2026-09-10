@@ -27,6 +27,19 @@ BOOSTER_TYPES = [
     BOOSTER_TYPE_JUMPSTART,
 ]
 
+# Display/sort priority for a Pack Type column (local feature request, no
+# LLD section) -- Collector and Play boosters are the highest-value, most
+# frequently opened-on-stream types, so they sort first rather than
+# alphabetically.
+BOOSTER_TYPE_SORT_RANK = {
+    BOOSTER_TYPE_COLLECTOR: 0,
+    BOOSTER_TYPE_PLAY: 1,
+    BOOSTER_TYPE_DRAFT: 2,
+    BOOSTER_TYPE_SET: 3,
+    BOOSTER_TYPE_JUMPSTART: 4,
+    BOOSTER_TYPE_CLASSIC: 5,
+}
+
 
 def normalize_product_name(name: str) -> str:
     """LLD 8.4 requires duplicate prevention on "normalized product name",

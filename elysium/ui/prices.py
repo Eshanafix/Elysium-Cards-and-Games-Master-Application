@@ -5,7 +5,8 @@ section 6.9). Available to streamers and admins alike.
 
 from decimal import Decimal, InvalidOperation
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -21,9 +22,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from elysium.models.prices import STATUS_AMBIGUOUS, STATUS_UNRESOLVED, classify_price
+from elysium.models.prices import (
+    CLASSIFICATION_COLOR,
+    CLASSIFICATION_ORDER,
+    STATUS_AMBIGUOUS,
+    STATUS_UNRESOLVED,
+    classify_price,
+)
 from elysium.repositories import price_repository as price_repo
-from elysium.services import product_service, pricing_service
+from elysium.services import lock_service, product_service, pricing_service
 from elysium.ui.background import run_worker, safe_callback
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
 from elysium.ui.table_scaling import make_columns_stretch, resize_columns_to_contents
@@ -98,8 +105,10 @@ class PricesScreen(QWidget):
         button_row.addWidget(self.enter_manual_button)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # indeterminate -- refresh duration isn't predictable
         self.progress_bar.setVisible(False)
+        self._progress_session_id = None
+        self._progress_timer = QTimer(self)
+        self._progress_timer.timeout.connect(self._poll_refresh_progress)
 
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
@@ -158,7 +167,7 @@ class PricesScreen(QWidget):
             self.table.setItem(row, 3, NumericTableWidgetItem(
                 self._fmt(resolved_price), resolved_price,
             ))
-            self.table.setItem(row, 4, QTableWidgetItem(classify_price(resolved_price) or ""))
+            self.table.setItem(row, 4, self._classification_item(resolved_price))
             self.table.setItem(row, 5, QTableWidgetItem(price.resolved_price_source if price else ""))
             self.table.setItem(row, 6, QTableWidgetItem(price.price_status if price else "UNRESOLVED"))
             self.table.setItem(row, 7, QTableWidgetItem(str(price.last_successful_refresh_at) if price and price.last_successful_refresh_at else ""))
@@ -175,6 +184,24 @@ class PricesScreen(QWidget):
     def _fmt(value) -> str:
         return f"${value:.2f}" if value is not None else ""
 
+    @staticmethod
+    def _classification_item(price) -> QTableWidgetItem:
+        classification = classify_price(price)
+        # Sort rank rather than plain alphabetical text -- alphabetical
+        # would read HIGH, LOW, MID, which doesn't track the price ordering
+        # this column represents.
+        # None (unclassified) sorts last regardless of direction -- see
+        # NumericTableWidgetItem's None-handling.
+        rank = CLASSIFICATION_ORDER.index(classification) if classification else None
+        item = NumericTableWidgetItem(classification or "", rank)
+
+        color = CLASSIFICATION_COLOR.get(classification)
+        if color:
+            item.setBackground(QColor(color))
+            item.setForeground(QColor("black"))
+
+        return item
+
     def selected_row(self):
         rows = self.table.selectionModel().selectedRows()
 
@@ -186,16 +213,48 @@ class PricesScreen(QWidget):
 
     def start_refresh(self):
         self.refresh_button.setEnabled(False)
+
+        # Total product count is known upfront -- pricing_service.refresh_
+        # prices() checks every catalog product exactly once, incrementing
+        # the refresh session's products_checked counter each time -- so a
+        # determinate bar (rather than the old indeterminate spinner) can
+        # show real progress by polling that counter against this total.
+        total = len(product_service.list_products())
+        self.progress_bar.setRange(0, max(total, 1))
+        self.progress_bar.setValue(0)
         self.progress_bar.setVisible(True)
-        self.summary_label.setText("Refreshing...")
+        self.summary_label.setText(f"Refreshing... (0 / {total} products checked)")
+
+        self._progress_session_id = None
+        self._progress_timer.start(400)
 
         self.refresh_worker = PriceRefreshWorker(self.current_user.id)
         self.refresh_worker.finished_success.connect(safe_callback(self.on_refresh_finished))
         self.refresh_worker.failed.connect(safe_callback(self.on_refresh_failed))
         run_worker(self.refresh_worker)
 
+    def _poll_refresh_progress(self):
+        # The session document doesn't exist until the worker thread has
+        # actually acquired the refresh lock -- get_lock_state() is how we
+        # find out the session_id in the meantime, since refresh_prices()
+        # only returns it once the whole refresh has finished.
+        if self._progress_session_id is None:
+            state = lock_service.get_lock_state()
+            if not (state.get("price_refresh_active") and state.get("refresh_session_id")):
+                return
+            self._progress_session_id = state["refresh_session_id"]
+
+        session = price_repo.find_refresh_session(self._progress_session_id)
+        if session:
+            checked = session.get("products_checked", 0)
+            total = self.progress_bar.maximum()
+            self.progress_bar.setValue(min(checked, total))
+            self.summary_label.setText(f"Refreshing... ({min(checked, total)} / {total} products checked)")
+
     def on_refresh_finished(self, session_id: str):
+        self._progress_timer.stop()
         self.refresh_button.setEnabled(True)
+        self.progress_bar.setValue(self.progress_bar.maximum())
         self.progress_bar.setVisible(False)
 
         session = price_repo.find_refresh_session(session_id)
@@ -216,6 +275,7 @@ class PricesScreen(QWidget):
         self.reload_prices()
 
     def on_refresh_failed(self, error: str):
+        self._progress_timer.stop()
         self.refresh_button.setEnabled(True)
         self.progress_bar.setVisible(False)
         self.summary_label.setText(f"Refresh failed: {error}")
