@@ -96,8 +96,16 @@ _BOOSTER_TYPE_BY_WORD = {
 # (confirmed live: this is exactly how Throne of Eldraine Collector
 # Booster ended up mapped to the *regular* Booster Box instead -- the
 # actual Collector box wasn't in the dropdown to pick from).
+# Newer sets (confirmed live: Reality Fracture, releasing 2026-10-02) drop
+# the trailing "Pack" word entirely on the single-pack SKU -- TCGCSV lists
+# it as "Reality Fracture - Play Booster", not "...Play Booster Pack" like
+# Foundations and every earlier set. Making "Pack" optional here fixes that
+# without reopening the door to box/display SKUs, since those still end in
+# "Box"/"Display"/"...Case" (never bare "Booster"), which _BOX_PATTERN
+# already claims separately -- a name ending in "Booster Display" still
+# fails this pattern because it doesn't end in "Booster" or "Booster Pack".
 _LOOSE_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+Pack|-\s*Booster\s+Pack)"
+    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster(?:\s+Pack)?|-\s*Booster(?:\s+Pack)?)"
     r"(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )

@@ -138,6 +138,30 @@ MYSTERY_BOOSTER_RETAIL_PRODUCT_NAMES = [
     "Mystery Booster - Booster Box [Retail Exclusive]",
 ]
 
+# Real product names from TCGCSV group 24684 ("Reality Fracture", releasing
+# 2026-10-02), captured live 2026-09-25. Bug report: the search found the
+# set and the Box dropdown populated, but Loose pack came back completely
+# empty. Cause: this set's single-pack SKUs drop the trailing "Pack" word
+# entirely ("Reality Fracture - Play Booster", not "...Play Booster Pack"
+# like every earlier set) -- _LOOSE_PATTERN required that literal "Pack"
+# suffix.
+REALITY_FRACTURE_PRODUCT_NAMES = [
+    "Reality Fracture - Prerelease Pack",
+    "Reality Fracture - Prerelease Case",
+    "Reality Fracture - Play Booster",
+    "Reality Fracture - Play Booster Display",
+    "Reality Fracture - Play Booster Display Case",
+    "Reality Fracture - Collector Booster",
+    "Reality Fracture - Collector Booster Display",
+    "Reality Fracture - Collector Booster Display Case",
+    "Reality Fracture - Bundle",
+    "Reality Fracture - Bundle Case",
+    "Reality Fracture - Draft Night",
+    "Reality Fracture - Draft Night Case",
+    "Reality Fracture - Secret Lair Bundle",
+    "Reality Fracture - Secret Lair Bundle Case",
+]
+
 MYSTERY_BOOSTER_CONVENTION_PRODUCT_NAMES = [
     "Mystery Booster - Booster Pack [Convention Edition] (2019)",
     "Mystery Booster - Booster Box [Convention Edition] (2019)",
@@ -379,6 +403,44 @@ def test_mystery_booster_convention_bracket_and_paren_suffix_is_tolerated():
     }
     # The bulk case variant must still be excluded.
     assert "Mystery Booster - Booster Box Case [Convention Edition] (2021)" not in (loose_names | box_names)
+
+
+def test_reality_fracture_loose_boosters_with_no_pack_suffix_still_classify():
+    products = make_products(REALITY_FRACTURE_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    loose_names = {c.name for c in loose}
+    box_names = {c.name for c in box}
+
+    assert loose_names == {
+        "Reality Fracture - Play Booster",
+        "Reality Fracture - Collector Booster",
+    }
+    assert box_names == {
+        "Reality Fracture - Play Booster Display",
+        "Reality Fracture - Collector Booster Display",
+    }
+
+    loose_by_name = {c.name: c for c in loose}
+    assert loose_by_name["Reality Fracture - Play Booster"].booster_type == BOOSTER_TYPE_PLAY
+    assert loose_by_name["Reality Fracture - Collector Booster"].booster_type == BOOSTER_TYPE_COLLECTOR
+
+
+def test_reality_fracture_excludes_non_sealed_variants():
+    products = make_products(REALITY_FRACTURE_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    all_names = {c.name for c in loose + box}
+    assert "Reality Fracture - Prerelease Pack" not in all_names
+    assert "Reality Fracture - Prerelease Case" not in all_names
+    assert "Reality Fracture - Play Booster Display Case" not in all_names
+    assert "Reality Fracture - Collector Booster Display Case" not in all_names
+    assert "Reality Fracture - Bundle" not in all_names
+    assert "Reality Fracture - Bundle Case" not in all_names
+    assert "Reality Fracture - Draft Night" not in all_names
+    assert "Reality Fracture - Draft Night Case" not in all_names
+    assert "Reality Fracture - Secret Lair Bundle" not in all_names
+    assert "Reality Fracture - Secret Lair Bundle Case" not in all_names
 
 
 def test_parse_packs_per_box_from_foundations_style_text():
