@@ -111,6 +111,171 @@ def test_create_database_adds_search_indexes(tmp_path):
 
     assert "idx_cards_name" in index_names
     assert "idx_cards_name_price_id" in index_names
+    assert "idx_cards_name_normalized" in index_names
+    assert "idx_cards_name_normalized_price_id" in index_names
+
+
+# --- Forgiving search (docs feedback): case-insensitive, punctuation/
+# spacing-insensitive, and tolerant of a slight misspelling. ---
+
+
+def test_normalize_for_search_strips_punctuation_case_and_spacing():
+    assert db.normalize_for_search("70,000 Light-Years From Home") == "70000lightyearsfromhome"
+    assert db.normalize_for_search("70000 light years from home") == "70000lightyearsfromhome"
+
+
+def test_normalize_for_search_handles_none_and_empty():
+    assert db.normalize_for_search(None) == ""
+    assert db.normalize_for_search("") == ""
+
+
+def test_search_cards_ignores_punctuation_the_stored_name_has_but_the_query_lacks(tmp_path):
+    """The exact motivating example: the real card is "70,000 Light-Years
+    From Home" -- a search shouldn't need the comma or the hyphen."""
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [make_card("1", "70,000 Light-Years From Home")])
+
+    rows, total = db.search_cards(db_path, search_text="70000 light years from home")
+
+    assert total == 1
+    assert rows[0][1] == "70,000 Light-Years From Home"
+
+
+def test_search_cards_is_case_insensitive_and_ignores_mixed_punctuation(tmp_path):
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [make_card("1", "70,000 Light-Years From Home")])
+
+    rows, total = db.search_cards(db_path, search_text="70,000 LIGHT-years from HOME")
+
+    assert total == 1
+
+
+def test_search_cards_falls_back_to_a_close_match_for_a_slight_misspelling(tmp_path):
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [make_card("1", "Lightning Bolt")])
+
+    rows, total = db.search_cards(db_path, search_text="Lighning Bolt")
+
+    assert total == 1
+    assert rows[0][1] == "Lightning Bolt"
+
+
+def test_search_cards_fuzzy_fallback_does_not_fire_when_the_exact_search_already_matches(tmp_path):
+    """The fuzzy pass should only ever run on a genuinely empty exact
+    result -- not silently widen a search that already found something."""
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [
+        make_card("1", "Lightning Bolt"),
+        make_card("2", "Lightning Strike"),
+    ])
+
+    rows, total = db.search_cards(db_path, search_text="Lightning Bolt")
+
+    assert total == 1
+    assert rows[0][1] == "Lightning Bolt"
+
+
+def test_search_cards_fuzzy_fallback_skips_very_short_queries(tmp_path):
+    """A short garbled query matches so much of the pool as a substring
+    already, or is too short for a meaningful "close match" comparison --
+    the fuzzy pass is gated to avoid noisy/expensive short-string fuzzing."""
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [make_card("1", "Lightning Bolt")])
+
+    rows, total = db.search_cards(db_path, search_text="xyz")
+
+    assert total == 0
+    assert rows == []
+
+
+def test_search_cards_fuzzy_fallback_still_respects_set_code_filter(tmp_path):
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [
+        make_card("1", "Lightning Bolt", set_code="aaa"),
+        make_card("2", "Lightning Bolt", set_code="bbb"),
+    ])
+
+    rows, total = db.search_cards(db_path, search_text="Lighning Bolt", set_codes={"aaa"})
+
+    assert total == 1
+    assert rows[0][2] == "aaa"
+
+
+def test_create_database_migrates_a_pre_normalized_column_database_and_backfills_it(tmp_path):
+    """A database built by an older app version has no name_normalized
+    column -- create_database() (called on every launch, card_lookup.py's
+    __init__) must add and backfill it in place, so forgiving search works
+    immediately without requiring a full Refresh Card Data re-download."""
+    import sqlite3
+
+    db_path = tmp_path / "cards.sqlite"
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE cards (
+            row_id TEXT PRIMARY KEY,
+            scryfall_id TEXT, oracle_id TEXT,
+            name TEXT, printed_name TEXT,
+            set_code TEXT, set_name TEXT, collector_number TEXT, rarity TEXT, lang TEXT, released_at TEXT,
+            printing_details TEXT, finish TEXT, price REAL,
+            frame TEXT, border_color TEXT, security_stamp TEXT,
+            promo INTEGER, full_art INTEGER, textless INTEGER, booster INTEGER, story_spotlight INTEGER,
+            variation INTEGER, variation_of TEXT, oversized INTEGER,
+            mana_cost TEXT, cmc REAL, type_line TEXT, oracle_text TEXT, power TEXT, toughness TEXT,
+            colors_text TEXT, color_identity_text TEXT,
+            image_small TEXT, image_normal TEXT, image_large TEXT, image_png TEXT
+        )
+    """)
+    conn.execute(
+        "INSERT INTO cards (row_id, name, set_code, collector_number, rarity, price) VALUES (?, ?, ?, ?, ?, ?)",
+        ("old-row-1", "70,000 Light-Years From Home", "tst", "1", "common", 1.00),
+    )
+    conn.commit()
+
+    columns_before = {row[1] for row in conn.execute("PRAGMA table_info(cards)")}
+    conn.close()
+    assert "name_normalized" not in columns_before
+
+    db.create_database(db_path)  # exactly what card_lookup.py's __init__ calls on every launch
+
+    conn = sqlite3.connect(db_path)
+    columns_after = {row[1] for row in conn.execute("PRAGMA table_info(cards)")}
+    backfilled = conn.execute(
+        "SELECT name_normalized FROM cards WHERE row_id = ?", ("old-row-1",)
+    ).fetchone()[0]
+    conn.close()
+
+    assert "name_normalized" in columns_after
+    assert backfilled == "70000lightyearsfromhome"
+
+    rows, total = db.search_cards(db_path, search_text="70000 light years from home")
+    assert total == 1
+
+
+def test_create_database_migration_is_a_noop_on_an_already_current_database(tmp_path):
+    """Running create_database() again (every app launch) against a
+    database that already has name_normalized must not error or re-run
+    the backfill."""
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+    db.insert_cards(db_path, [make_card("1", "Lightning Bolt")])
+
+    db.create_database(db_path)  # second call, same as a normal app relaunch
+
+    rows, total = db.search_cards(db_path, search_text="lightning bolt")
+    assert total == 1
 
 
 def test_search_cards_on_missing_database_returns_empty(tmp_path):

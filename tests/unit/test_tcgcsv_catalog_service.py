@@ -443,6 +443,49 @@ def test_reality_fracture_excludes_non_sealed_variants():
     assert "Reality Fracture - Secret Lair Bundle Case" not in all_names
 
 
+# --- Forward-compatibility: a qualifier word this module has never seen
+# before must still classify, rather than silently matching nothing until
+# a follow-up code change adds it to an enumerated list (the exact failure
+# mode behind the Jumpstart, Beyond, and Reality Fracture incidents above).
+
+
+def test_never_seen_qualifier_word_still_classifies_as_a_candidate():
+    products = make_products([
+        "Some Future Set - Arena Booster Pack",
+        "Some Future Set - Arena Booster Display",
+    ])
+    loose, box = classify_sealed_candidates(products)
+
+    assert {c.name for c in loose} == {"Some Future Set - Arena Booster Pack"}
+    assert {c.name for c in box} == {"Some Future Set - Arena Booster Display"}
+
+    # No auto-derived type for a word absent from _BOOSTER_TYPE_BY_WORD --
+    # the admin sets booster_type by hand in the dialog, same as always.
+    assert loose[0].booster_type is None
+    assert box[0].booster_type is None
+
+
+def test_never_seen_qualifier_word_with_no_pack_suffix_still_classifies():
+    """The Reality Fracture-style "no trailing Pack word" case, combined
+    with a qualifier word this module has never seen -- both forward-
+    compatibility fixes have to work together, not just individually."""
+    products = make_products(["Some Future Set - Arena Booster"])
+    loose, _box = classify_sealed_candidates(products)
+
+    assert {c.name for c in loose} == {"Some Future Set - Arena Booster"}
+
+
+def test_theme_qualifier_remains_excluded_despite_open_qualifier_matching():
+    """Theme boosters structurally WOULD match now that the qualifier word
+    isn't restricted to an enumerated list -- must stay excluded via the
+    explicit denylist, not silently start showing up as candidates."""
+    products = make_products(RAVNICA_ALLEGIANCE_PRODUCT_NAMES)
+    loose, box = classify_sealed_candidates(products)
+
+    all_names = {c.name for c in loose + box}
+    assert not any("Theme" in name for name in all_names)
+
+
 def test_parse_packs_per_box_from_foundations_style_text():
     """Real (excerpted) description text captured live from tcgcsv.com for
     productId 562118 ("Foundations - Play Booster Display"). This text

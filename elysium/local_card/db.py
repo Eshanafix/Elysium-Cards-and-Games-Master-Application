@@ -15,12 +15,43 @@ docs/IMPLEMENTATION_PLAN.md section 8:
   previously-working database (LLD 26.3, 27.2).
 """
 
+import difflib
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
 LAST_SUCCESSFUL_REFRESH_KEY = "last_successful_refresh_at"
+
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+# Minimum normalized search length before the fuzzy misspelling fallback
+# kicks in (search_cards() below) -- a 1-3 character query matches so much
+# of the card pool already that a "close match" comparison is both
+# meaningless and needlessly expensive.
+_FUZZY_MIN_LENGTH = 4
+_FUZZY_CUTOFF = 0.72
+_FUZZY_MAX_RESULTS = 8
+
+# name_normalized values are cached per db_path, keyed by the file's mtime
+# so a Refresh Card Data rebuild (which replaces the file) automatically
+# invalidates the cache without any explicit call from card_lookup.py.
+_distinct_names_cache: dict[Path, tuple[float, list[str]]] = {}
+
+
+def normalize_for_search(text: str | None) -> str:
+    """Lowercases and strips every non-alphanumeric character -- commas,
+    hyphens, apostrophes, colons, spaces, all of it -- so a search doesn't
+    need to match a card's exact punctuation/spacing/case (docs feedback:
+    "70000 light years from home" should find "70,000 Light-Years From
+    Home" even though the real name has a comma and a hyphen the search
+    text doesn't). Applied identically to both the stored name_normalized
+    column and the live search text, so this only ever makes matching MORE
+    permissive than a raw substring match, never less."""
+    if not text:
+        return ""
+    return _NON_ALNUM_RE.sub("", text.lower())
 
 
 def safe_float(value):
@@ -72,6 +103,32 @@ def build_printing_details(card):
     return " / ".join(final)
 
 
+def _ensure_name_normalized_column(cursor) -> None:
+    """Migration for a database created before name_normalized existed.
+    create_database() runs (as a no-op CREATE TABLE IF NOT EXISTS) against
+    an already-populated database on every app launch (card_lookup.py's
+    __init__) -- that alone won't add a column to an existing table, so
+    forgiving search (normalize_for_search()) needs this explicit ALTER +
+    one-time backfill to work immediately on an already-installed database,
+    without requiring a full Refresh Card Data re-download first. A no-op
+    once the column exists -- including every fresh temp DB built during a
+    rebuild, since CREATE TABLE above already includes the column there."""
+    cursor.execute("PRAGMA table_info(cards)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    if "name_normalized" in existing_columns:
+        return
+
+    cursor.execute("ALTER TABLE cards ADD COLUMN name_normalized TEXT")
+    cursor.execute("SELECT row_id, name FROM cards")
+    rows = cursor.fetchall()
+
+    cursor.executemany(
+        "UPDATE cards SET name_normalized = ? WHERE row_id = ?",
+        [(normalize_for_search(name), row_id) for row_id, name in rows],
+    )
+
+
 def create_database(db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -84,6 +141,7 @@ def create_database(db_path: Path) -> None:
         oracle_id TEXT,
 
         name TEXT,
+        name_normalized TEXT,
         printed_name TEXT,
 
         set_code TEXT,
@@ -133,6 +191,8 @@ def create_database(db_path: Path) -> None:
     )
     """)
 
+    _ensure_name_normalized_column(cursor)
+
     # Search filters on `name` with a leading wildcard (LIKE '%text%'), which
     # can't seek a plain index -- but SQLite can still satisfy the COUNT(*)
     # this runs on every keystroke with a full scan of this narrow covering
@@ -140,6 +200,15 @@ def create_database(db_path: Path) -> None:
     # fields), which measured ~90ms per keystroke against a 145k-row table
     # without it, ~10ms with it.
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_name ON cards(name)")
+
+    # Same reasoning as idx_cards_name above, but for the search predicate
+    # search_cards() actually filters on now (name_normalized, not the raw
+    # name -- see normalize_for_search()).
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cards_name_normalized ON cards(name_normalized)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cards_name_normalized_price_id "
+        "ON cards(name_normalized, price, row_id)"
+    )
 
     # search_cards()'s actual row-fetch query (not just the count) also
     # sorts by price and limits to a page -- with only idx_cards_name,
@@ -221,6 +290,7 @@ def _insert_one_version(cursor, card, finish, price, image_uris, printing_detail
         oracle_id,
 
         name,
+        name_normalized,
         printed_name,
 
         set_code,
@@ -261,7 +331,7 @@ def _insert_one_version(cursor, card, finish, price, image_uris, printing_detail
         image_large,
         image_png
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         row_id,
 
@@ -269,6 +339,7 @@ def _insert_one_version(cursor, card, finish, price, image_uris, printing_detail
         card.get("oracle_id"),
 
         card.get("name"),
+        normalize_for_search(card.get("name")),
         card.get("printed_name"),
 
         card.get("set"),
@@ -402,6 +473,42 @@ def get_set_options(db_path: Path) -> list[tuple[str, str, int]]:
     return rows
 
 
+def _distinct_normalized_names(db_path: Path) -> list[str]:
+    """Cached (by db file mtime, so a Refresh Card Data rebuild -- which
+    replaces the file -- automatically invalidates it) list of every
+    distinct name_normalized value, for the fuzzy-misspelling fallback
+    below. Only ever queried lazily on a search that came up completely
+    empty, never on the normal per-keystroke path."""
+    mtime = db_path.stat().st_mtime
+    cached = _distinct_names_cache.get(db_path)
+
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT DISTINCT name_normalized FROM cards WHERE name_normalized IS NOT NULL AND name_normalized != ''"
+    )
+    names = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    _distinct_names_cache[db_path] = (mtime, names)
+    return names
+
+
+def _fuzzy_normalized_matches(db_path: Path, normalized_search: str) -> list[str]:
+    """Best-effort "did you mean" fallback for a slight misspelling (docs
+    feedback) -- only called once the exact/substring search above has
+    already come back with zero matches, so this O(distinct card names)
+    comparison is paid rarely, not on every keystroke of a normal search
+    (which already matches on every partial prefix)."""
+    candidates = _distinct_normalized_names(db_path)
+    return difflib.get_close_matches(
+        normalized_search, candidates, n=_FUZZY_MAX_RESULTS, cutoff=_FUZZY_CUTOFF,
+    )
+
+
 def search_cards(
     db_path: Path,
     search_text: str = "",
@@ -413,6 +520,13 @@ def search_cards(
     Returns (rows, total_matches). rows are capped at `limit` (None = no cap);
     total_matches reflects the full filtered count for "Showing X of Y" and
     "Load More" UI.
+
+    Matches against name_normalized (normalize_for_search()), not the raw
+    name -- so search_text needs no exact case, punctuation, or spacing
+    (docs feedback: "70000 light years from home" should find "70,000
+    Light-Years From Home"). If that still comes back with zero matches, a
+    fuzzy fallback (_fuzzy_normalized_matches) catches a slight misspelling
+    by finding the closest actual card names and re-querying against those.
     """
     if not db_path.exists():
         return [], 0
@@ -420,31 +534,46 @@ def search_cards(
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    conditions = ["name LIKE ?"]
-    params: list = [f"%{search_text}%"]
+    normalized_search = normalize_for_search(search_text)
 
-    if set_codes:
-        placeholders = ",".join("?" for _ in set_codes)
-        conditions.append(f"set_code IN ({placeholders})")
-        params.extend(list(set_codes))
+    def run_count(name_condition: str, name_params: list) -> tuple[int, str, list]:
+        conditions = [name_condition]
+        params = list(name_params)
 
-    if collector_numbers:
-        placeholders = ",".join("?" for _ in collector_numbers)
-        conditions.append(f"collector_number IN ({placeholders})")
-        params.extend(list(collector_numbers))
+        if set_codes:
+            placeholders = ",".join("?" for _ in set_codes)
+            conditions.append(f"set_code IN ({placeholders})")
+            params.extend(list(set_codes))
 
-    where_clause = " AND ".join(conditions)
+        if collector_numbers:
+            placeholders = ",".join("?" for _ in collector_numbers)
+            conditions.append(f"collector_number IN ({placeholders})")
+            params.extend(list(collector_numbers))
 
-    cursor.execute(f"SELECT COUNT(*) FROM cards WHERE {where_clause}", params)
-    total_matches = cursor.fetchone()[0]
+        where_clause = " AND ".join(conditions)
+        cursor.execute(f"SELECT COUNT(*) FROM cards WHERE {where_clause}", params)
+        return cursor.fetchone()[0], where_clause, params
 
-    # Two-step fetch: first sort+limit against the narrow (name, price,
-    # row_id) covering index rather than a single query that sorts the full
-    # matching set by price against the wide `cards` table -- the latter
-    # measured ~90-100ms for ~1600 matches on a 145k-row table (SQLite has
-    # to read every matching row's full data before it can apply LIMIT to
-    # an ORDER BY it can't satisfy from an index); this version measured
-    # ~20-25ms for the same search.
+    total_matches, where_clause, params = run_count(
+        "name_normalized LIKE ?", [f"%{normalized_search}%"],
+    )
+
+    if total_matches == 0 and len(normalized_search) >= _FUZZY_MIN_LENGTH:
+        fuzzy_names = _fuzzy_normalized_matches(db_path, normalized_search)
+
+        if fuzzy_names:
+            placeholders = ",".join("?" for _ in fuzzy_names)
+            total_matches, where_clause, params = run_count(
+                f"name_normalized IN ({placeholders})", fuzzy_names,
+            )
+
+    # Two-step fetch: first sort+limit against the narrow (name_normalized,
+    # price, row_id) covering index rather than a single query that sorts
+    # the full matching set by price against the wide `cards` table -- the
+    # latter measured ~90-100ms for ~1600 matches on a 145k-row table
+    # (SQLite has to read every matching row's full data before it can
+    # apply LIMIT to an ORDER BY it can't satisfy from an index); this
+    # version measured ~20-25ms for the same search.
     id_query = f"SELECT row_id FROM cards WHERE {where_clause} ORDER BY price DESC"
     id_params = list(params)
 

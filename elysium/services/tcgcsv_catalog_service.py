@@ -77,6 +77,25 @@ _BOOSTER_TYPE_BY_WORD = {
     "beyond": BOOSTER_TYPE_CLASSIC,
 }
 
+# Every past naming-convention break this module has had to chase down
+# (Jumpstart, Beyond, the missing-"Pack"-suffix Reality Fracture style) was
+# the SAME root cause: the match patterns below used to require the word
+# immediately before "Booster" to be one of a fixed, enumerated list --
+# so a genuinely new qualifier word TCGPlayer invents tomorrow would once
+# again match nothing at all, silently, until someone notices and a
+# follow-up code change adds it here. The patterns now accept ANY single
+# word in that position structurally (see _LOOSE_PATTERN/_BOX_PATTERN) --
+# a new type just shows up as a candidate automatically, with
+# booster_type left None (BOOSTER_TYPE_BY_WORD.get() below returns None
+# for an unrecognized word) for the admin to set by hand in the dialog,
+# same as they already can today. Only a word on THIS denylist is still
+# excluded outright, because it's a genuinely different, non-standard
+# product line that was always meant to stay out of the picker -- not an
+# unrecognized new type, just an unwanted one. Add to this list, never
+# back to a fixed match-list, if another such deliberately-excluded
+# product line turns up.
+_EXCLUDED_QUALIFIER_WORDS = {"theme"}
+
 # Some products (Mystery Booster's retail/convention-exclusive listings) add
 # a bracketed and/or parenthesized annotation after "Booster Pack/Box", e.g.
 # "Mystery Booster - Booster Pack [Retail Exclusive]" or "Mystery Booster -
@@ -104,16 +123,33 @@ _BOOSTER_TYPE_BY_WORD = {
 # "Box"/"Display"/"...Case" (never bare "Booster"), which _BOX_PATTERN
 # already claims separately -- a name ending in "Booster Display" still
 # fails this pattern because it doesn't end in "Booster" or "Booster Pack".
+#
+# The qualifier word immediately before "Booster" is captured as ANY single
+# word ([A-Za-z]+), not a fixed enumerated list -- see the long comment on
+# _EXCLUDED_QUALIFIER_WORDS above for why: a fixed list means every genuinely
+# new qualifier word (Jumpstart and Beyond both had to be added this way
+# before) breaks the match again until a follow-up code change. Structural
+# anchoring (immediately before "Booster", and the end-of-name anchor below)
+# still does the real work of excluding non-sealed variants -- "Omega Pack",
+# "Sample Pack", "2-Pack", "Battle Pack" etc. all fail to match regardless of
+# the qualifier word because nothing comes directly after "Booster" except
+# those extra words, not "(Pack)?$". Only _EXCLUDED_QUALIFIER_WORDS still
+# needs an explicit deny entry (currently just "Theme") for a product line
+# that structurally WOULD match but is deliberately kept out of the picker.
 _LOOSE_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster(?:\s+Pack)?|-\s*Booster(?:\s+Pack)?)"
+    r"(?:\b([A-Za-z]+)\s+Booster(?:\s+Pack)?|-\s*Booster(?:\s+Pack)?)"
     r"(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )
 _BOX_PATTERN = re.compile(
-    r"(?:\b(Play|Draft|Set|Collectors?|Jumpstart|Beyond)\s+Booster\s+(?:Pack\s+)?(?:Box|Display)"
+    r"(?:\b([A-Za-z]+)\s+Booster\s+(?:Pack\s+)?(?:Box|Display)"
     r"|-\s*Booster\s+(?:Pack\s+)?(?:Box|Display))(?:\s*\[[^\]]+\])?(?:\s*\([^)]+\))?$",
     re.IGNORECASE,
 )
+
+
+def _is_excluded_qualifier(qualifier: str | None) -> bool:
+    return qualifier is not None and qualifier.lower() in _EXCLUDED_QUALIFIER_WORDS
 
 # TCGCSV/TCGPlayer don't expose a structured "packs per box" field -- it's
 # real-world box-contents knowledge, not pricing data. These are sane
@@ -213,6 +249,13 @@ def derive_booster_type_from_name(name: str) -> str | None:
         # "<Set> - Booster Pack/Box" doesn't fit any of those four types.
         return BOOSTER_TYPE_CLASSIC
 
+    if _is_excluded_qualifier(qualifier):
+        return None
+
+    # Deliberately not in _BOOSTER_TYPE_BY_WORD (a genuinely new qualifier
+    # word, not a denylisted one) -- still a valid candidate structurally,
+    # just with no auto-derived type; the admin sets booster_type by hand
+    # in the dialog, same as for any other field the app couldn't derive.
     return _BOOSTER_TYPE_BY_WORD.get(qualifier.lower())
 
 
@@ -232,13 +275,16 @@ def classify_sealed_candidates(products: list[dict]) -> tuple[list[SealedCandida
         if product_id is None:
             continue
 
-        if _LOOSE_PATTERN.search(name):
+        loose_match = _LOOSE_PATTERN.search(name)
+        box_match = _BOX_PATTERN.search(name)
+
+        if loose_match and not _is_excluded_qualifier(loose_match.group(1)):
             loose.append(SealedCandidate(
                 product_id=str(product_id), name=name,
                 image_url=product.get("imageUrl"),
                 booster_type=derive_booster_type_from_name(name),
             ))
-        elif _BOX_PATTERN.search(name):
+        elif box_match and not _is_excluded_qualifier(box_match.group(1)):
             box.append(SealedCandidate(
                 product_id=str(product_id), name=name,
                 image_url=product.get("imageUrl"),
