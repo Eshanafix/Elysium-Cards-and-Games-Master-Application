@@ -130,6 +130,89 @@ def admin_add_inventory(product_id: str, packs: int, admin_id: str) -> None:
     logger.info("Admin '%s' added %s packs to product '%s'", admin_id, packs, product_id)
 
 
+def admin_add_inventory_and_claim(
+    product_id: str, packs: int, admin_id: str, streamer_id: str, streamer_database_name: str,
+) -> None:
+    """Combines admin_add_inventory + streamer_claim into one atomic action
+    (docs feedback: an admin who's also a streamer shouldn't have to add to
+    master inventory and then separately go claim it themselves -- and more
+    generally, an admin stocking up for a specific streamer shouldn't have
+    to round-trip through the unassigned pool either). The new packs go
+    straight from "didn't exist yet" to "this streamer holds it": only
+    total_packs increases (and, derived from it, assigned_packs on the
+    Master Inventory screen) -- unassigned_packs is untouched, since these
+    packs were never unassigned even momentarily. The total=unassigned+
+    allocated invariant (LLD 10.2) still holds either way this happens, in
+    one step or two.
+
+    Writes both a MASTER_INVENTORY_ADDED and a STREAMER_INVENTORY_CLAIMED
+    audit event -- same two events a manual add-then-claim would produce,
+    so each inventory's own audit history still tells its own complete
+    story, just performed_by this admin rather than "requested_by" the
+    streamer for the claim half."""
+    _require_positive_quantity(packs)
+
+    client = get_client()
+    master_db = get_master_db()
+    streamer_db = get_streamer_db(streamer_database_name)
+    now = datetime.now(timezone.utc)
+
+    def callback(session):
+        _assert_streamer_not_locked(streamer_id, session)
+
+        before = master_db.inventory_current.find_one({"_id": product_id}, session=session)
+
+        if before is None:
+            raise InventoryValidationError(f"No master inventory record for product '{product_id}'.")
+
+        master_db.inventory_current.update_one(
+            {"_id": product_id},
+            {"$inc": {"total_packs": packs, "version": 1}, "$set": {"updated_at": now}},
+            session=session,
+        )
+
+        master_db.streamer_allocations.update_one(
+            {"streamer_id": streamer_id, "product_id": product_id},
+            {"$inc": {"current_packs": packs, "version": 1}, "$set": {"updated_at": now}},
+            upsert=True,
+            session=session,
+        )
+
+        streamer_db.inventory_current.update_one(
+            {"_id": product_id},
+            {"$inc": {"current_packs": packs}, "$set": {"updated_at": now, "product_id": product_id}},
+            upsert=True,
+            session=session,
+        )
+
+        audit_service.record_event(
+            action_type="MASTER_INVENTORY_ADDED",
+            performed_by=admin_id,
+            product_id=product_id,
+            quantity_change=packs,
+            before_values={"total_packs": before["total_packs"], "unassigned_packs": before["unassigned_packs"]},
+            after_values={"total_packs": before["total_packs"] + packs, "unassigned_packs": before["unassigned_packs"]},
+            session=session,
+        )
+
+        audit_service.record_event(
+            action_type="STREAMER_INVENTORY_CLAIMED",
+            performed_by=admin_id,
+            streamer_id=streamer_id,
+            product_id=product_id,
+            quantity_change=packs,
+            session=session,
+        )
+
+    with client.start_session() as session:
+        session.with_transaction(callback)
+
+    logger.info(
+        "Admin '%s' added %s packs to product '%s' and claimed them directly for streamer '%s'",
+        admin_id, packs, product_id, streamer_id,
+    )
+
+
 def admin_reduce_inventory(product_id: str, packs: int, reason: str, admin_id: str) -> None:
     _require_positive_quantity(packs)
 

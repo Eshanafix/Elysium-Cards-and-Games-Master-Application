@@ -3,6 +3,7 @@ Admin Master Inventory screen (LLD section 10, 24.3).
 """
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -16,7 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from elysium.models.products import BOOSTER_TYPE_SORT_RANK
-from elysium.models.users import ROLE_ADMIN
+from elysium.models.users import ROLE_ADMIN, ROLE_STREAMER
+from elysium.repositories import master_repository as repo
 from elysium.services import inventory_service
 from elysium.ui.numeric_inputs import SelectAllSpinBox
 from elysium.ui.numeric_table_item import NumericTableWidgetItem
@@ -29,7 +31,7 @@ def _pack_type_item(product) -> NumericTableWidgetItem:
 
 
 class AddInventoryDialog(QDialog):
-    def __init__(self, product_name: str, packs_per_box: int, parent=None):
+    def __init__(self, product_name: str, packs_per_box: int, streamers: list, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Add Inventory: {product_name}")
         self.packs_per_box = packs_per_box
@@ -46,6 +48,18 @@ class AddInventoryDialog(QDialog):
 
         self.converted_label = QLabel()
 
+        # Optional: send these packs straight to a streamer instead of the
+        # unassigned pool (docs feedback -- an admin who's also a streamer
+        # shouldn't have to add to master inventory and then separately go
+        # claim it themselves; also useful for stocking up on behalf of any
+        # other streamer directly). Defaults to "no streamer" so the
+        # existing add-to-unassigned-pool behavior is unchanged unless an
+        # admin deliberately picks one.
+        self.streamer_combo = QComboBox()
+        self.streamer_combo.addItem("-- Add to unassigned pool (default) --", None)
+        for streamer in streamers:
+            self.streamer_combo.addItem(streamer.username, streamer)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -56,6 +70,8 @@ class AddInventoryDialog(QDialog):
         layout.addWidget(QLabel("Additional loose packs:"))
         layout.addWidget(self.loose_packs_input)
         layout.addWidget(self.converted_label)
+        layout.addWidget(QLabel("Streamer (optional -- claims these packs immediately instead):"))
+        layout.addWidget(self.streamer_combo)
         layout.addWidget(buttons)
 
         self.setLayout(layout)
@@ -71,6 +87,9 @@ class AddInventoryDialog(QDialog):
         return inventory_service.box_to_packs(
             self.boxes_input.value(), self.loose_packs_input.value(), self.packs_per_box
         )
+
+    def selected_streamer(self):
+        return self.streamer_combo.currentData()
 
 
 class ReduceInventoryDialog(QDialog):
@@ -108,6 +127,10 @@ class MasterInventoryScreen(QWidget):
         self.current_user = current_user
         self._rows = []
         self._columns_sized = False
+        # Fetched once, not on every reload() -- matches
+        # StreamerInventoryAdminScreen's streamer_combo. A streamer created
+        # mid-session won't show up here until this screen is reopened.
+        self._streamers = [u for u in repo.list_users() if ROLE_STREAMER in u.roles]
 
         layout = QVBoxLayout()
 
@@ -216,7 +239,7 @@ class MasterInventoryScreen(QWidget):
         if not product:
             return
 
-        dialog = AddInventoryDialog(product.name, product.packs_per_box, self)
+        dialog = AddInventoryDialog(product.name, product.packs_per_box, self._streamers, self)
 
         if dialog.exec() != QDialog.Accepted:
             return
@@ -227,13 +250,28 @@ class MasterInventoryScreen(QWidget):
             self.show_message("Enter at least one box or loose pack.", error=True)
             return
 
+        streamer = dialog.selected_streamer()
+
         try:
-            inventory_service.admin_add_inventory(product.id, packs, self.current_user.id)
-        except inventory_service.InventoryValidationError as e:
+            if streamer is not None:
+                inventory_service.admin_add_inventory_and_claim(
+                    product.id, packs, self.current_user.id, streamer.id, streamer.streamer_database_name,
+                )
+            else:
+                inventory_service.admin_add_inventory(product.id, packs, self.current_user.id)
+        except (
+            inventory_service.InventoryValidationError,
+            inventory_service.StreamerLockedError,
+        ) as e:
             self.show_message(str(e), error=True)
             return
 
-        self.show_message(f"Added {packs} packs to '{product.name}'.", error=False)
+        if streamer is not None:
+            self.show_message(
+                f"Added {packs} packs of '{product.name}' and claimed them for '{streamer.username}'.", error=False,
+            )
+        else:
+            self.show_message(f"Added {packs} packs to '{product.name}'.", error=False)
         self.reload()
 
     def reduce_inventory(self):

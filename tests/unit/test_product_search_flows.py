@@ -59,7 +59,7 @@ def test_master_inventory_add_opens_search_picker_without_a_preselected_row(qtbo
     monkeypatch.setattr(inventory_master, "ProductSearchDialog", FakePicker)
 
     class FakeAddDialog:
-        def __init__(self, product_name, packs_per_box, parent=None):
+        def __init__(self, product_name, packs_per_box, streamers, parent=None):
             self.product_name = product_name
 
         def exec(self):

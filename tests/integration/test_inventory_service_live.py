@@ -241,6 +241,75 @@ def test_return_cannot_exceed_current_holdings(scenario):
         )
 
 
+def test_admin_add_inventory_and_claim_increases_total_without_touching_unassigned(scenario):
+    """Docs feedback: an admin adding new stock directly for a streamer
+    (e.g. an admin who's also that streamer) shouldn't have to add to the
+    unassigned pool and then separately claim it. total_packs should rise
+    by the added amount; unassigned_packs should be completely untouched,
+    since these packs were never unassigned even momentarily."""
+    product, streamer_a, _b = scenario
+
+    inventory_service.admin_add_inventory(product.id, 20, "integration-test")
+    inv, _allocs = assert_master_invariant(product.id)
+    assert inv["total_packs"] == 20 and inv["unassigned_packs"] == 20
+
+    inventory_service.admin_add_inventory_and_claim(
+        product.id, 15, "integration-test", streamer_a.id, streamer_a.streamer_database_name,
+    )
+
+    inv, allocs = assert_master_invariant(product.id)
+    assert inv["total_packs"] == 35  # 20 + 15
+    assert inv["unassigned_packs"] == 20  # untouched by the combined add-and-claim
+    assert allocs[streamer_a.id] == 15
+
+    streamer_inv = get_master_db().client[streamer_a.streamer_database_name].inventory_current.find_one(
+        {"_id": product.id}
+    )
+    assert streamer_inv["current_packs"] == 15
+
+
+def test_admin_add_inventory_and_claim_writes_both_audit_events(scenario):
+    product, streamer_a, _b = scenario
+
+    inventory_service.admin_add_inventory_and_claim(
+        product.id, 12, "integration-test", streamer_a.id, streamer_a.streamer_database_name,
+    )
+
+    add_audit = get_master_db().audit_events.find_one({
+        "action_type": "MASTER_INVENTORY_ADDED", "product_id": product.id, "performed_by": "integration-test",
+    })
+    assert add_audit is not None
+    assert add_audit["quantity_change"] == 12
+
+    claim_audit = get_master_db().audit_events.find_one({
+        "action_type": "STREAMER_INVENTORY_CLAIMED", "streamer_id": streamer_a.id, "product_id": product.id,
+    })
+    assert claim_audit is not None
+    assert claim_audit["quantity_change"] == 12
+    assert claim_audit["performed_by"] == "integration-test"  # the admin, not the streamer
+
+
+def test_admin_add_inventory_and_claim_then_a_second_streamer_can_still_claim_from_unassigned(scenario):
+    """The combined add-and-claim must not interfere with the normal
+    unassigned pool for anyone else."""
+    product, streamer_a, streamer_b = scenario
+
+    inventory_service.admin_add_inventory(product.id, 30, "integration-test")
+    inventory_service.admin_add_inventory_and_claim(
+        product.id, 10, "integration-test", streamer_a.id, streamer_a.streamer_database_name,
+    )
+
+    inventory_service.streamer_claim(
+        streamer_b.id, streamer_b.streamer_database_name, product.id, 30, requested_by=streamer_b.id,
+    )
+
+    inv, allocs = assert_master_invariant(product.id)
+    assert inv["total_packs"] == 40  # 30 + 10
+    assert inv["unassigned_packs"] == 0  # all 30 original unassigned packs claimed by B
+    assert allocs[streamer_a.id] == 10
+    assert allocs[streamer_b.id] == 30
+
+
 def test_master_inventory_view_shows_username_not_raw_streamer_id(scenario):
     """Regression test: the Master Inventory screen's allocation summary
     displayed a truncated streamer_id (e.g. "ff63f196:18") instead of the
