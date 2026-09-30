@@ -18,6 +18,7 @@ docs/IMPLEMENTATION_PLAN.md section 8:
 import difflib
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -25,6 +26,18 @@ from typing import Callable
 LAST_SUCCESSFUL_REFRESH_KEY = "last_successful_refresh_at"
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+# Bump this whenever normalize_for_search()'s logic changes in a way that
+# changes its output for EXISTING text -- _ensure_name_normalized_column()
+# below compares it against what's stored in local_meta and redoes the
+# full-table backfill (not just rows missing the column outright) whenever
+# they differ, so an already-migrated database picks up the new logic too.
+# v2: added diacritic stripping (bug report: "Lim-Dul the Necromancer" /
+# "Jotun Grunt" only matched typed with the accented letter -- v1 deleted
+# u-with-circumflex/o-with-diaeresis outright as if they were punctuation,
+# instead of treating them as their plain base letter).
+_NAME_NORMALIZED_VERSION = "2"
+_NAME_NORMALIZED_VERSION_META_KEY = "name_normalized_version"
 
 # Minimum normalized search length before the fuzzy misspelling fallback
 # kicks in (search_cards() below) -- a 1-3 character query matches so much
@@ -41,17 +54,31 @@ _distinct_names_cache: dict[Path, tuple[float, list[str]]] = {}
 
 
 def normalize_for_search(text: str | None) -> str:
-    """Lowercases and strips every non-alphanumeric character -- commas,
-    hyphens, apostrophes, colons, spaces, all of it -- so a search doesn't
-    need to match a card's exact punctuation/spacing/case (docs feedback:
-    "70000 light years from home" should find "70,000 Light-Years From
-    Home" even though the real name has a comma and a hyphen the search
-    text doesn't). Applied identically to both the stored name_normalized
-    column and the live search text, so this only ever makes matching MORE
-    permissive than a raw substring match, never less."""
+    """Lowercases, strips accents/diacritics down to their plain base
+    letter, and strips every remaining non-alphanumeric character --
+    commas, hyphens, apostrophes, colons, spaces, all of it -- so a search
+    doesn't need to match a card's exact punctuation/spacing/case/accent
+    marks (docs feedback: "70000 light years from home" should find
+    "70,000 Light-Years From Home"; "lim-dul the necromancer" should find
+    "Lim-Dul the Necromancer" without typing the u-circumflex). NFKD-
+    decomposing before stripping is what makes the accent handling work --
+    it splits e.g. "u-with-circumflex" into a plain "u" plus a separate
+    combining-mark character, which is then the thing that gets dropped
+    (unicodedata.combining() flags it), leaving the base letter behind
+    intact. This only covers letters that decompose into a base letter +
+    a mark (the vast majority of Magic's accented letters -- a-grave/acute/
+    circumflex/diaeresis/tilde, e/i/o/u with the same, n-tilde, c-cedilla,
+    etc.); a handful of genuinely atomic letters with no such decomposition
+    (ø, ae, eth, thorn, sharp-s) would still need to be typed as-is, though
+    none of those appear in a real Magic card name as of this writing.
+    Applied identically to both the stored name_normalized column and the
+    live search text, so this only ever makes matching MORE permissive
+    than a raw substring match, never less."""
     if not text:
         return ""
-    return _NON_ALNUM_RE.sub("", text.lower())
+    decomposed = unicodedata.normalize("NFKD", text)
+    without_marks = "".join(c for c in decomposed if not unicodedata.combining(c))
+    return _NON_ALNUM_RE.sub("", without_marks.lower())
 
 
 def safe_float(value):
@@ -104,28 +131,45 @@ def build_printing_details(card):
 
 
 def _ensure_name_normalized_column(cursor) -> None:
-    """Migration for a database created before name_normalized existed.
-    create_database() runs (as a no-op CREATE TABLE IF NOT EXISTS) against
-    an already-populated database on every app launch (card_lookup.py's
-    __init__) -- that alone won't add a column to an existing table, so
-    forgiving search (normalize_for_search()) needs this explicit ALTER +
-    one-time backfill to work immediately on an already-installed database,
-    without requiring a full Refresh Card Data re-download first. A no-op
-    once the column exists -- including every fresh temp DB built during a
-    rebuild, since CREATE TABLE above already includes the column there."""
+    """Migration for a database created before name_normalized existed, OR
+    whose stored values were computed by an older, since-changed version of
+    normalize_for_search() (tracked via local_meta -- see
+    _NAME_NORMALIZED_VERSION's comment). create_database() runs (as a no-op
+    CREATE TABLE IF NOT EXISTS) against an already-populated database on
+    every app launch (card_lookup.py's __init__) -- that alone won't add a
+    column to an existing table or recompute values already stored, so
+    forgiving search needs this explicit ALTER + backfill to work
+    immediately on an already-installed database, without requiring a full
+    Refresh Card Data re-download first. A near-no-op (one fast SELECT on
+    local_meta) once both the column and the backfilled version already
+    match -- including every fresh temp DB built during a rebuild, since
+    CREATE TABLE above already includes the column there and there are no
+    rows yet to (re)backfill."""
     cursor.execute("PRAGMA table_info(cards)")
     existing_columns = {row[1] for row in cursor.fetchall()}
 
-    if "name_normalized" in existing_columns:
+    if "name_normalized" not in existing_columns:
+        cursor.execute("ALTER TABLE cards ADD COLUMN name_normalized TEXT")
+
+    cursor.execute(
+        "SELECT value FROM local_meta WHERE key = ?", (_NAME_NORMALIZED_VERSION_META_KEY,)
+    )
+    row = cursor.fetchone()
+    stored_version = row[0] if row else None
+
+    if stored_version == _NAME_NORMALIZED_VERSION:
         return
 
-    cursor.execute("ALTER TABLE cards ADD COLUMN name_normalized TEXT")
     cursor.execute("SELECT row_id, name FROM cards")
     rows = cursor.fetchall()
 
     cursor.executemany(
         "UPDATE cards SET name_normalized = ? WHERE row_id = ?",
         [(normalize_for_search(name), row_id) for row_id, name in rows],
+    )
+    cursor.execute(
+        "INSERT OR REPLACE INTO local_meta (key, value) VALUES (?, ?)",
+        (_NAME_NORMALIZED_VERSION_META_KEY, _NAME_NORMALIZED_VERSION),
     )
 
 

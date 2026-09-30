@@ -129,6 +129,81 @@ def test_normalize_for_search_handles_none_and_empty():
     assert db.normalize_for_search("") == ""
 
 
+def test_normalize_for_search_strips_accents_to_their_base_letter():
+    """Regression: v1 of this function deleted an accented letter outright
+    (treating it as punctuation) instead of reducing it to its plain base
+    letter -- "Lim-Dûl" normalized to "limdl", not "limdul", so a search
+    for the plain-typed "lim-dul" could never match it. Real bug report:
+    "Lim-Dûl the Necromancer" and "Jötun Grunt" only matched if you typed
+    the accented character."""
+    assert db.normalize_for_search("Lim-Dûl the Necromancer") == "limdulthenecromancer"
+    assert db.normalize_for_search("Lim-Dul the Necromancer") == "limdulthenecromancer"
+    assert db.normalize_for_search("Jötun Grunt") == "jotungrunt"
+    assert db.normalize_for_search("Jotun Grunt") == "jotungrunt"
+
+
+def test_search_cards_finds_an_accented_card_name_typed_without_the_accent(tmp_path):
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+
+    db.insert_cards(db_path, [
+        make_card("1", "Lim-Dûl the Necromancer"),
+        make_card("2", "Jötun Grunt"),
+    ])
+
+    rows, total = db.search_cards(db_path, search_text="lim-dul the necromancer")
+    assert total == 1
+    assert rows[0][1] == "Lim-Dûl the Necromancer"
+
+    rows, total = db.search_cards(db_path, search_text="jotun grunt")
+    assert total == 1
+    assert rows[0][1] == "Jötun Grunt"
+
+
+def test_create_database_rebackfills_name_normalized_when_the_version_changes(tmp_path):
+    """Regression: bumping _NAME_NORMALIZED_VERSION (e.g. the accent-
+    stripping fix above) must force a full re-backfill of an already-
+    migrated database -- not just databases missing the column outright --
+    since the OLD stored values are simply wrong under the new logic, not
+    absent. Checks the stored column directly (rather than going through
+    search_cards()) so this doesn't get entangled with the separate fuzzy-
+    misspelling fallback, which can happen to still find a stale value
+    anyway if it's close enough -- that's real, intended behavior, just not
+    what this test is about."""
+    import sqlite3
+
+    db_path = tmp_path / "cards.sqlite"
+    db.create_database(db_path)
+    db.insert_cards(db_path, [make_card("1", "Lim-Dûl the Necromancer")])
+
+    # Simulate this row having been backfilled under the old (buggy) v1
+    # logic, and the db stamped as v1 -- exactly the state of a database
+    # that already ran the v1.0.17 migration before this fix shipped.
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE cards SET name_normalized = ? WHERE name = ?",
+        ("limdlthenecromancer", "Lim-Dûl the Necromancer"),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO local_meta (key, value) VALUES ('name_normalized_version', '1')"
+    )
+    conn.commit()
+    stale_value = conn.execute(
+        "SELECT name_normalized FROM cards WHERE name = ?", ("Lim-Dûl the Necromancer",)
+    ).fetchone()[0]
+    conn.close()
+    assert stale_value == "limdlthenecromancer"  # confirms the simulated stale state took effect
+
+    db.create_database(db_path)  # exactly what card_lookup.py's __init__ calls on every launch
+
+    conn = sqlite3.connect(db_path)
+    fixed_value = conn.execute(
+        "SELECT name_normalized FROM cards WHERE name = ?", ("Lim-Dûl the Necromancer",)
+    ).fetchone()[0]
+    conn.close()
+    assert fixed_value == "limdulthenecromancer"
+
+
 def test_search_cards_ignores_punctuation_the_stored_name_has_but_the_query_lacks(tmp_path):
     """The exact motivating example: the real card is "70,000 Light-Years
     From Home" -- a search shouldn't need the comma or the hyphen."""
