@@ -118,7 +118,27 @@ def insert_product_with_zero_inventory(product: Product) -> None:
 
 
 def update_product_fields(product_id: str, fields: dict) -> None:
-    get_master_db().products.update_one({"_id": product_id}, {"$set": fields})
+    fields = dict(fields)
+    update: dict = {}
+
+    # box_tcgcsv_product_id is sparse-unique (Product.box_tcgcsv_product_id
+    # is optional) -- a document missing the field entirely is exempt from
+    # that uniqueness check, but a document storing it as "" or null is a
+    # real value and isn't, so two edits that both clear their box id to ""
+    # would collide with each other. $unset the key instead of $set-ing it
+    # to a falsy value whenever an edit clears it.
+    if "box_tcgcsv_product_id" in fields:
+        box_id = fields.pop("box_tcgcsv_product_id")
+
+        if box_id:
+            update.setdefault("$set", {})["box_tcgcsv_product_id"] = box_id
+        else:
+            update.setdefault("$unset", {})["box_tcgcsv_product_id"] = ""
+
+    if fields:
+        update.setdefault("$set", {}).update(fields)
+
+    get_master_db().products.update_one({"_id": product_id}, update)
 
 
 def list_products() -> list[Product]:

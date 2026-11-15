@@ -179,6 +179,19 @@ class SetSearchPanel(QWidget):
         if self._loose_candidates:
             self.loose_combo.setCurrentIndex(0)
             self.on_loose_changed(0)
+
+            if not self._box_candidates:
+                # A handful of real sealed products (e.g. "Secret Lair x
+                # MSCHF: The Zeta Set", a genuinely randomized booster
+                # pack) have no booster box/display SKU on TCGCSV at all --
+                # that's fine (box mapping is optional), but worth saying
+                # up front rather than letting the admin find out only
+                # after filling out the whole form and clicking OK.
+                self.selected_set_label.setText(
+                    f"Selected set: {group['name']} -- no booster box/display found for this set. "
+                    "This product will be created with just the pack (no box); packs per box "
+                    "defaults to 1 since there's no real box multiplier to derive."
+                )
         elif not self._box_candidates:
             # Some TCGCSV groups are real but genuinely empty (e.g.
             # "Mystery Booster Cards" / MB1 has zero products listed under
@@ -232,9 +245,20 @@ class SetSearchPanel(QWidget):
         booster_type = (loose.booster_type if loose else None) or (box.booster_type if box else None)
 
         parsed_packs_per_box = tcgcsv_catalog_service.parse_packs_per_box(box_raw) if box_raw else None
-        packs_per_box = parsed_packs_per_box or (
-            tcgcsv_catalog_service.default_packs_per_box(booster_type) if booster_type else 36
-        )
+
+        if parsed_packs_per_box:
+            packs_per_box = parsed_packs_per_box
+        elif not self._box_candidates:
+            # No booster box/display exists anywhere in this TCGCSV group
+            # at all (not just "couldn't parse a count from this one
+            # listing's description") -- there's no real box multiplier to
+            # guess at, so falling back to the booster type's typical box
+            # size (e.g. 30 for a Set booster) would be actively wrong
+            # here, not just imprecise. 1 pack per "box" is the only
+            # correct default when there is no box.
+            packs_per_box = 1
+        else:
+            packs_per_box = tcgcsv_catalog_service.default_packs_per_box(booster_type) if booster_type else 36
 
         self.on_selection_resolved({
             "group": self._selected_group,
@@ -300,7 +324,7 @@ class ProductDialog(QDialog):
         self.tcgcsv_category_id_input = QLineEdit(product.tcgcsv_category_id if product else "1")
         self.tcgcsv_group_id_input = QLineEdit(product.tcgcsv_group_id if product else "")
         self.loose_tcgcsv_id_input = QLineEdit(product.loose_pack_tcgcsv_product_id if product else "")
-        self.box_tcgcsv_id_input = QLineEdit(product.box_tcgcsv_product_id if product else "")
+        self.box_tcgcsv_id_input = QLineEdit((product.box_tcgcsv_product_id or "") if product else "")
 
         if product is None:
             # Auto-filled by the search picker above -- shown read-only for

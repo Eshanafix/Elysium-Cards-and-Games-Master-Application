@@ -17,7 +17,7 @@
 ; instead of an in-place upgrade.
 
 #define MyAppName "Elysium Master Application"
-#define MyAppVersion "1.0.19"
+#define MyAppVersion "1.0.20"
 #define MyAppPublisher "Elysium"
 #define MyAppExeName "ElysiumMasterApplication.exe"
 

@@ -125,6 +125,95 @@ def test_duplicate_normalized_name_and_type_rejected(created_products):
         )
 
 
+def test_create_product_allows_a_box_less_secret_lair_product(created_products):
+    """Real-world case: "Secret Lair x MSCHF: The Zeta Set" is a genuinely
+    randomized booster pack with no booster box/display SKU on TCGCSV at
+    all -- box_tcgcsv_product_id is the one field allowed to be None, and
+    only for booster_type SECRET_LAIR."""
+    product = product_service.create_product(
+        name=unique_name("Secret Lair x MSCHF: The Zeta Set Booster Pack"),
+        booster_type="SECRET_LAIR", packs_per_box=1,
+        tcgcsv_category_id="1", tcgcsv_group_id="24836",
+        loose_pack_tcgcsv_product_id=f"loose-{uuid.uuid4().hex[:8]}",
+        box_tcgcsv_product_id=None,
+        image_url="https://example.com/zeta.jpg", english_confirmed=True,
+        created_by="integration-test",
+    )
+    created_products.append(product)
+
+    assert product.box_tcgcsv_product_id is None
+
+    doc = get_master_db().products.find_one({"_id": product.id})
+    assert "box_tcgcsv_product_id" not in doc
+
+    reloaded = product_service.get_product(product.id)
+    assert reloaded.box_tcgcsv_product_id is None
+
+
+def test_create_product_rejects_a_box_less_normal_booster_type(created_products):
+    """The same box-less call must be rejected for any type other than
+    SECRET_LAIR -- a normal booster product should always have a real
+    box/display SKU on TCGCSV."""
+    with pytest.raises(product_service.ProductValidationError):
+        product_service.create_product(
+            name=unique_name("Should Not Be Created"),
+            booster_type="PLAY", packs_per_box=36,
+            tcgcsv_category_id="1", tcgcsv_group_id="23556",
+            loose_pack_tcgcsv_product_id=f"loose-{uuid.uuid4().hex[:8]}",
+            box_tcgcsv_product_id=None,
+            image_url="https://example.com/x.jpg", english_confirmed=True,
+            created_by="integration-test",
+        )
+
+
+def test_two_box_less_secret_lair_products_can_coexist(created_products):
+    """The sparse unique index on box_tcgcsv_product_id is what makes this
+    possible -- a non-sparse unique index would only ever tolerate ONE
+    document with a missing box id before rejecting the second as a
+    duplicate null."""
+    first = product_service.create_product(
+        name=unique_name("Secret Lair Box-less A"), booster_type="SECRET_LAIR", packs_per_box=1,
+        tcgcsv_category_id="1", tcgcsv_group_id="24836",
+        loose_pack_tcgcsv_product_id=f"loose-{uuid.uuid4().hex[:8]}",
+        box_tcgcsv_product_id=None,
+        image_url="https://example.com/x.jpg", english_confirmed=True,
+        created_by="integration-test",
+    )
+    created_products.append(first)
+
+    second = product_service.create_product(
+        name=unique_name("Secret Lair Box-less B"), booster_type="SECRET_LAIR", packs_per_box=1,
+        tcgcsv_category_id="1", tcgcsv_group_id="24837",
+        loose_pack_tcgcsv_product_id=f"loose-{uuid.uuid4().hex[:8]}",
+        box_tcgcsv_product_id=None,
+        image_url="https://example.com/x.jpg", english_confirmed=True,
+        created_by="integration-test",
+    )
+    created_products.append(second)  # no DuplicateProductError -- the real point of this test
+
+
+def test_update_product_can_clear_an_existing_box_mapping(created_products):
+    """Editing an existing product to clear its box id must $unset the
+    field rather than $set it to "" -- otherwise a second box-less product
+    edited the same way would collide with the first on a shared stored
+    "" value despite the index being sparse (sparse only exempts documents
+    missing the field entirely, not ones storing a falsy value)."""
+    product = product_service.create_product(
+        name=unique_name("Clearable Box"), booster_type="SECRET_LAIR", packs_per_box=1,
+        tcgcsv_category_id="1", tcgcsv_group_id="24838",
+        loose_pack_tcgcsv_product_id=f"loose-{uuid.uuid4().hex[:8]}",
+        box_tcgcsv_product_id=f"box-{uuid.uuid4().hex[:8]}",
+        image_url="https://example.com/x.jpg", english_confirmed=True,
+        created_by="integration-test",
+    )
+    created_products.append(product)
+
+    product_service.update_product(product.id, {"box_tcgcsv_product_id": ""}, updated_by="integration-test")
+
+    doc = get_master_db().products.find_one({"_id": product.id})
+    assert "box_tcgcsv_product_id" not in doc
+
+
 def test_zero_stock_products_still_listed(created_products):
     product = product_service.create_product(
         name=unique_name("Zero Stock"), booster_type="PLAY", packs_per_box=36,

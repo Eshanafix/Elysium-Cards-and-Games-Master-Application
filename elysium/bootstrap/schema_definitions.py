@@ -35,11 +35,17 @@ MASTER_COLLECTIONS = [
                 "required": [
                     "_id", "name", "name_normalized", "booster_type", "language", "english_confirmed",
                     "packs_per_box", "tcgcsv_category_id", "tcgcsv_group_id",
-                    "loose_pack_tcgcsv_product_id", "box_tcgcsv_product_id",
+                    "loose_pack_tcgcsv_product_id",
+                    # box_tcgcsv_product_id is deliberately NOT required -- a
+                    # handful of real sealed products (e.g. "Secret Lair x
+                    # MSCHF: The Zeta Set", a genuinely randomized booster
+                    # pack) have no box/display SKU on TCGCSV at all, just
+                    # the one pack listing. See uniq_box_tcgcsv_id below
+                    # (sparse) and elysium/models/products.py.
                     "image_url", "is_active",
                 ],
                 "properties": {
-                    "booster_type": {"enum": ["DRAFT", "SET", "COLLECTOR", "PLAY", "CLASSIC", "JUMPSTART"]},
+                    "booster_type": {"enum": ["DRAFT", "SET", "COLLECTOR", "PLAY", "CLASSIC", "JUMPSTART", "SECRET_LAIR"]},
                     "packs_per_box": {"bsonType": "int", "minimum": 1},
                     "english_confirmed": {"bsonType": "bool"},
                     "is_active": {"bsonType": "bool"},
@@ -48,7 +54,12 @@ MASTER_COLLECTIONS = [
         },
         [
             {"keys": [("loose_pack_tcgcsv_product_id", 1)], "unique": True, "name": "uniq_loose_tcgcsv_id"},
-            {"keys": [("box_tcgcsv_product_id", 1)], "unique": True, "name": "uniq_box_tcgcsv_id"},
+            # Sparse -- unique only among products that actually HAVE a box
+            # mapping (the overwhelming majority); a box-less product omits
+            # the field entirely rather than storing null/"", so multiple
+            # box-less products can coexist without colliding with each
+            # other on a shared missing value.
+            {"keys": [("box_tcgcsv_product_id", 1)], "unique": True, "sparse": True, "name": "uniq_box_tcgcsv_id"},
             {"keys": [("name_normalized", 1), ("booster_type", 1)], "unique": True, "name": "uniq_name_normalized_booster_type"},
             {"keys": [("is_active", 1)], "name": "idx_is_active"},
             {"keys": [("tcgcsv_category_id", 1), ("tcgcsv_group_id", 1)], "name": "idx_tcgcsv_group"},
@@ -319,13 +330,39 @@ def ensure_collection(db, name: str, validator: dict | None) -> str:
     return "updated"
 
 
+# The only create_index options actually used across every index spec in
+# this file -- compared here against what's already live so a changed
+# option (e.g. turning on "sparse") is detected rather than left to fail.
+_COMPARABLE_INDEX_OPTIONS = ("unique", "sparse")
+
+
+def _index_options_differ(existing: dict, spec: dict) -> bool:
+    return any(bool(existing.get(option, False)) != bool(spec.get(option, False)) for option in _COMPARABLE_INDEX_OPTIONS)
+
+
 def ensure_indexes(db, name: str, index_specs: list[dict]) -> int:
+    """Creates any missing index. For one that already exists under the
+    same name but with different options (unique/sparse) -- e.g. a later
+    schema change turns on "sparse" for an index that didn't have it --
+    drops and recreates it with the new options, since MongoDB rejects
+    create_index on an existing name with mismatched options outright
+    (IndexOptionsConflict) rather than treating it as a no-op. This is
+    what actually makes this function's "idempotent, safe to re-run"
+    guarantee (module docstring) hold for an options change, not just for
+    adding a brand new index."""
     collection = db[name]
+    existing_by_name = {idx["name"]: idx for idx in collection.list_indexes()}
     count = 0
 
     for spec in index_specs:
         spec = dict(spec)
         keys = spec.pop("keys")
+        index_name = spec.get("name")
+        existing = existing_by_name.get(index_name) if index_name else None
+
+        if existing is not None and _index_options_differ(existing, spec):
+            collection.drop_index(index_name)
+
         collection.create_index(keys, **spec)
         count += 1
 

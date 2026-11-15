@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 
 from pymongo.errors import DuplicateKeyError
 
-from elysium.models.products import BOOSTER_TYPES, Product
+from elysium.models.products import BOOSTER_TYPE_SECRET_LAIR, BOOSTER_TYPES, Product
 from elysium.repositories import master_repository as repo
 from elysium.services import audit_service
 
@@ -50,12 +50,21 @@ def _validate_mandatory_fields(
     tcgcsv_category_id: str,
     tcgcsv_group_id: str,
     loose_pack_tcgcsv_product_id: str,
-    box_tcgcsv_product_id: str,
+    box_tcgcsv_product_id: str | None,
     image_url: str,
     english_confirmed: bool,
 ) -> None:
     # LLD 8.2's six mandatory fields, plus the Phase 3 TCGCSV
     # category/group ids the group-batched refresh design requires.
+    #
+    # box_tcgcsv_product_id is required for every booster type EXCEPT
+    # SECRET_LAIR, deliberately -- narrower than "box is optional for any
+    # product" so this relaxation can't accidentally let a normal booster
+    # product (which should always have a real box/display SKU on TCGCSV)
+    # slip through without one by mistake. SECRET_LAIR is the one type
+    # that actually needs it absent: a handful of real sealed products
+    # (e.g. "Secret Lair x MSCHF: The Zeta Set", a genuinely randomized
+    # booster pack) have no booster box/display SKU on TCGCSV at all.
     if not name or not name.strip():
         raise ProductValidationError("Product name is required.")
 
@@ -65,7 +74,7 @@ def _validate_mandatory_fields(
     if not loose_pack_tcgcsv_product_id or not loose_pack_tcgcsv_product_id.strip():
         raise ProductValidationError("Loose-pack TCGCSV product mapping is required.")
 
-    if not box_tcgcsv_product_id or not box_tcgcsv_product_id.strip():
+    if booster_type != BOOSTER_TYPE_SECRET_LAIR and (not box_tcgcsv_product_id or not box_tcgcsv_product_id.strip()):
         raise ProductValidationError("Booster-box TCGCSV product mapping is required.")
 
     if not tcgcsv_category_id or not tcgcsv_group_id:
@@ -87,7 +96,7 @@ def _check_duplicates(
     name: str,
     booster_type: str,
     loose_pack_tcgcsv_product_id: str,
-    box_tcgcsv_product_id: str,
+    box_tcgcsv_product_id: str | None,
 ) -> None:
     if repo.normalized_name_and_type_exists(name, booster_type):
         raise DuplicateProductError(f"A {booster_type} product named '{name}' already exists.")
@@ -97,7 +106,10 @@ def _check_duplicates(
             f"Loose-pack TCGCSV product id '{loose_pack_tcgcsv_product_id}' is already mapped to another product."
         )
 
-    if repo.box_tcgcsv_id_exists(box_tcgcsv_product_id):
+    # Nothing to check against for a box-less product (box_tcgcsv_product_id
+    # is None) -- the sparse unique index already lets any number of these
+    # coexist, so there's no "already mapped" collision to even look for.
+    if box_tcgcsv_product_id and repo.box_tcgcsv_id_exists(box_tcgcsv_product_id):
         raise DuplicateProductError(
             f"Box TCGCSV product id '{box_tcgcsv_product_id}' is already mapped to another product."
         )
@@ -110,7 +122,7 @@ def create_product(
     tcgcsv_category_id: str,
     tcgcsv_group_id: str,
     loose_pack_tcgcsv_product_id: str,
-    box_tcgcsv_product_id: str,
+    box_tcgcsv_product_id: str | None,
     image_url: str,
     english_confirmed: bool,
     created_by: str,
@@ -118,6 +130,13 @@ def create_product(
     set_code: str | None = None,
     release_date: date | None = None,
 ) -> Product:
+    # Normalized once, here, so every caller (the UI's field_values(),
+    # live integration tests, the AI assistant, etc.) can keep passing
+    # whatever a plain QLineEdit.text().strip() produces -- "" -- without
+    # each one having to know that "no box" has to be a real None rather
+    # than an empty string by the time it reaches the model/database.
+    box_tcgcsv_product_id = box_tcgcsv_product_id or None
+
     _validate_mandatory_fields(
         name, booster_type, packs_per_box, tcgcsv_category_id, tcgcsv_group_id,
         loose_pack_tcgcsv_product_id, box_tcgcsv_product_id, image_url, english_confirmed,
