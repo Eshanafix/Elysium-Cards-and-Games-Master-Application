@@ -2,12 +2,14 @@
 Login screen (LLD section 6). Shown first whenever the application opens.
 """
 
-from PySide6.QtCore import QUrl, Signal
+from PySide6.QtCore import QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -15,7 +17,8 @@ from PySide6.QtWidgets import (
 
 from elysium.config import APP_NAME
 from elysium.security import credential_store
-from elysium.services import auth_service, mongo_client, update_service
+from elysium.services import auth_service, mongo_client, self_update_service, update_service
+from elysium.ui.background import run_worker, safe_callback
 from elysium.version import APP_VERSION
 
 
@@ -83,14 +86,58 @@ class DatabaseConnectionDialog(QDialog):
         self.accept()
 
 
+class SelfUpdateWorker(QThread):
+    """Downloads the installer only -- launching it and quitting the app
+    happen back on the main thread (MandatoryUpdateDialog.on_download_
+    finished) rather than here, since starting a detached process and
+    then tearing down the whole QApplication is the kind of thing that
+    should happen from the thread Qt already considers "the" main one,
+    not a worker."""
+
+    progress = Signal(int)
+    finished_success = Signal(str)  # installer_path
+    failed = Signal(str)
+
+    def __init__(self, download_url: str, version: str, expected_sha256: str):
+        super().__init__()
+        self.download_url = download_url
+        self.version = version
+        self.expected_sha256 = expected_sha256
+
+    def run(self):
+        try:
+            def on_progress(downloaded, total):
+                self.progress.emit(int(downloaded / total * 100))
+
+            installer_path = self_update_service.download_installer(
+                self.download_url, self.version, self.expected_sha256 or None, progress_callback=on_progress,
+            )
+            self.finished_success.emit(str(installer_path))
+        except self_update_service.SelfUpdateError as e:
+            self.failed.emit(str(e))
+        except Exception as e:
+            self.failed.emit(f"Unexpected error: {e}")
+
+
 class MandatoryUpdateDialog(QDialog):
     """No "continue anyway" option by design -- update_service.
     is_update_required() gates the login itself, so the only way past this
-    dialog is to actually install the new build and relaunch."""
+    dialog is to actually install the new build and relaunch.
 
-    def __init__(self, required_version: str, download_url: str, release_notes: str, parent=None):
+    "Update Now" downloads the installer itself and runs it fully silently
+    (self_update_service) -- no Downloads folder, no manual double-click,
+    no relaunching the app by hand. "Download Manually" (the old behavior:
+    open the release page in a browser) stays as a fallback in case the
+    in-app path fails for some reason (no network from Python specifically,
+    antivirus interference, etc.)."""
+
+    def __init__(self, required_version: str, download_url: str, release_notes: str, sha256: str = "", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Update Required")
+        self.required_version = required_version
+        self.download_url = download_url
+        self.sha256 = sha256
+        self._worker = None
 
         layout = QVBoxLayout()
 
@@ -107,16 +154,68 @@ class MandatoryUpdateDialog(QDialog):
             notes.setStyleSheet("color: #aaaaaa;")
             layout.addWidget(notes)
 
-        self.download_button = QPushButton("Download Update")
+        self.update_now_button = QPushButton("Update Now")
+        self.update_now_button.setEnabled(bool(download_url))
+        self.update_now_button.clicked.connect(self.start_self_update)
+        layout.addWidget(self.update_now_button)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.status_label = QLabel()
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        self.download_button = QPushButton("Download Manually Instead")
         self.download_button.setEnabled(bool(download_url))
         self.download_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(download_url)))
         layout.addWidget(self.download_button)
 
-        close_button = QPushButton("Close")
-        close_button.clicked.connect(self.accept)
-        layout.addWidget(close_button)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.reject)
+        layout.addWidget(self.close_button)
 
         self.setLayout(layout)
+
+    def start_self_update(self):
+        self.update_now_button.setEnabled(False)
+        self.download_button.setEnabled(False)
+        self.close_button.setEnabled(False)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self.status_label.setStyleSheet("")
+        self.status_label.setText("Downloading update...")
+
+        self._worker = SelfUpdateWorker(self.download_url, self.required_version, self.sha256)
+        self._worker.progress.connect(safe_callback(self.progress_bar.setValue))
+        self._worker.finished_success.connect(safe_callback(self.on_download_finished))
+        self._worker.failed.connect(safe_callback(self.on_download_failed))
+        run_worker(self._worker)
+
+    def on_download_finished(self, installer_path: str):
+        self.status_label.setText("Installing update...")
+
+        try:
+            self_update_service.launch_silent_install(installer_path)
+        except self_update_service.SelfUpdateError as e:
+            self.on_download_failed(str(e))
+            return
+
+        # The installer's own CloseApplications=yes will also close this
+        # process if it's still running by the time it gets there, but
+        # quitting cleanly ourselves right away is the more graceful path
+        # -- same shape as elysium/ui/app_restart.py's display-scale restart.
+        QApplication.quit()
+
+    def on_download_failed(self, error: str):
+        self.update_now_button.setEnabled(True)
+        self.download_button.setEnabled(True)
+        self.close_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+        self.status_label.setStyleSheet("color: #ff6b6b;")
+        self.status_label.setText(f"Update failed: {error} You can still download and run it manually below.")
 
 
 class LoginScreen(QWidget):
@@ -230,7 +329,8 @@ class LoginScreen(QWidget):
         if update_service.is_update_required():
             config = update_service.get_update_config()
             dialog = MandatoryUpdateDialog(
-                config["required_version"], config["download_url"], config["release_notes"], self,
+                config["required_version"], config["download_url"], config["release_notes"],
+                sha256=config["sha256"], parent=self,
             )
             dialog.exec()
             return

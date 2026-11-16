@@ -33,6 +33,13 @@ def get_update_config() -> dict:
         "required_version": doc.get("required_version", APP_VERSION) if doc else APP_VERSION,
         "download_url": doc.get("download_url", "") if doc else "",
         "release_notes": doc.get("release_notes", "") if doc else "",
+        # sha256 is optional -- older published configs (from before the
+        # in-app self-updater existed) won't have one. "" rather than None
+        # so callers can treat it uniformly with the other string fields
+        # above; self_update_service only verifies a checksum when one is
+        # actually present, so an old config without it just skips that
+        # check rather than failing.
+        "sha256": doc.get("sha256", "") if doc else "",
     }
 
 
@@ -41,10 +48,13 @@ def is_update_required() -> bool:
     return version_is_outdated(APP_VERSION, config["required_version"])
 
 
-def publish_required_version(version: str, download_url: str, release_notes: str, published_by: str) -> None:
+def publish_required_version(
+    version: str, download_url: str, release_notes: str, published_by: str, sha256: str | None = None,
+) -> None:
     version = version.strip()
     download_url = download_url.strip()
     release_notes = release_notes.strip()
+    sha256 = sha256.strip() if sha256 else ""
 
     if not version:
         raise ValueError("Version is required.")
@@ -55,6 +65,7 @@ def publish_required_version(version: str, download_url: str, release_notes: str
         "required_version": version,
         "download_url": download_url,
         "release_notes": release_notes,
+        "sha256": sha256,
     }
     repo.set_app_update_config(fields)
 

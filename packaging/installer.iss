@@ -17,7 +17,7 @@
 ; instead of an in-place upgrade.
 
 #define MyAppName "Elysium Master Application"
-#define MyAppVersion "1.0.20"
+#define MyAppVersion "1.0.21"
 #define MyAppPublisher "Elysium"
 #define MyAppExeName "ElysiumMasterApplication.exe"
 
@@ -48,6 +48,25 @@ WizardStyle=modern
 ; No credentials, no MongoDB URI, no Python are ever prompted for or
 ; embedded here -- per-machine setup (the real Atlas connection) happens
 ; the first time the installed app runs, via its own .env/keyring flow.
+;
+; CloseApplications: a safety net for the plain manual/interactive case --
+; if someone double-clicks a freshly downloaded installer while the app
+; happens to still be open, Restart Manager closes it rather than failing
+; outright. NOT relied on for in-app self-update (elysium/services/
+; self_update_service.py) -- empirically, on real hardware, Restart
+; Manager's "ask this Qt app to close" request is unreliable (confirmed
+; live: sometimes closes it within ~10s, sometimes never closes it at all
+; even after 90+s, with no code difference between runs). The self-updater
+; instead quits the app itself (code it fully controls, consistently fast)
+; immediately after launching the installer, so by the time the installer
+; gets to the file-copy step there's usually nothing left to close.
+;
+; RestartApplications is deliberately NOT set -- same unreliability
+; (confirmed live: never observed it actually relaunch the app within the
+; same window CloseApplications needed to close it). The [Run] entry
+; below (postinstall, without skipifsilent) is what reliably relaunches
+; the app after any install, interactive or silent.
+CloseApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -68,4 +87,11 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+; skipifsilent deliberately removed -- in-app self-update (elysium/
+; services/self_update_service.py) runs this installer /VERYSILENT and
+; needs this launch to actually fire afterward, which skipifsilent exists
+; specifically to prevent. A normal interactive install still gets the
+; same "Launch" checkbox on the finish page either way (that page -- and
+; whether it's even shown -- is controlled by "postinstall" plus the
+; wizard's own ShowLanguageDialog, not by skipifsilent).
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall

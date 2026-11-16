@@ -50,6 +50,10 @@ def get_setup_flag_path() -> Path:
     return get_data_dir() / "setup_complete.txt"
 
 
+def get_updates_dir() -> Path:
+    return get_app_data_dir() / "updates"
+
+
 def ensure_app_dirs() -> None:
     get_app_data_dir().mkdir(parents=True, exist_ok=True)
     get_cache_dir().mkdir(parents=True, exist_ok=True)

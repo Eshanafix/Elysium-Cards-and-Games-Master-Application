@@ -35,6 +35,7 @@ def test_get_update_config_defaults_to_local_version_when_unset(monkeypatch):
     assert config["required_version"] == APP_VERSION
     assert config["download_url"] == ""
     assert config["release_notes"] == ""
+    assert config["sha256"] == ""
 
 
 def test_is_update_required_false_when_local_version_current(monkeypatch):
@@ -71,9 +72,37 @@ def test_publish_required_version_writes_config_and_records_audit(monkeypatch):
         "required_version": "2.0.0",
         "download_url": "https://example.com/setup.exe",
         "release_notes": "Fixed a crash.",
+        "sha256": "",
     }
     assert audited["action_type"] == "APP_UPDATE_PUBLISHED"
     assert audited["performed_by"] == "admin-1"
+
+
+def test_publish_required_version_stores_a_sha256_checksum(monkeypatch):
+    written = {}
+
+    monkeypatch.setattr(update_service.repo, "set_app_update_config", lambda fields: written.update(fields))
+    monkeypatch.setattr(update_service.audit_service, "record_event", lambda **kwargs: "event-id")
+
+    update_service.publish_required_version(
+        "2.0.0", "https://example.com/setup.exe", "", "admin-1", sha256="  ABCDEF0123  ",
+    )
+
+    # Stored as-given (just whitespace-stripped) -- the case-insensitive
+    # comparison happens at use time in self_update_service, not here.
+    assert written["sha256"] == "ABCDEF0123"
+
+
+def test_get_update_config_returns_the_published_sha256(monkeypatch):
+    monkeypatch.setattr(
+        update_service.repo, "get_app_update_config",
+        lambda: {
+            "required_version": "2.0.0", "download_url": "https://example.com",
+            "release_notes": "", "sha256": "abc123",
+        },
+    )
+
+    assert update_service.get_update_config()["sha256"] == "abc123"
 
 
 def test_publish_required_version_rejects_blank_version():
