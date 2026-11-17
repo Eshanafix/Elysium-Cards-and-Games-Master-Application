@@ -185,7 +185,10 @@ def get_break_profit_by_pack_count(streamer_username: str = "") -> str:
     """Get average break gross/profit grouped by how many packs were in the
     break (e.g. to compare 3-pack breaks vs. 4-pack breaks). Only includes
     breaks that have actually ended (in-progress breaks have no gross/profit
-    yet). Covers every streamer combined by default.
+    yet). Covers every streamer combined by default. This only returns
+    aggregated group averages -- it cannot identify which specific stream or
+    break a group belongs to. For "which stream/break had only 1 pack, and
+    what was it" style questions, use list_breaks instead.
 
     Args:
         streamer_username: Optional exact username to scope to one streamer
@@ -221,6 +224,96 @@ def get_break_profit_by_pack_count(streamer_username: str = "") -> str:
         })
 
     return _to_tool_result(results)
+
+
+@beta_tool
+def list_breaks(
+    streamer_username: str = "",
+    pack_count: int = -1,
+    start_date: str = "",
+    end_date: str = "",
+    limit: int = 50,
+) -> str:
+    """List individual breaks with full detail: the streamer, the date of
+    the stream it belongs to, the break's sequence number within that
+    stream, every pack in it by product name and quantity, and its
+    gross/profit/margin. Use this to pin down a SPECIFIC break -- e.g.
+    "which stream and break had only 1 pack, and what pack was it" --
+    which get_break_profit_by_pack_count can't answer, since that tool only
+    returns aggregated group averages with no way to identify individual
+    breaks. Only includes breaks that have actually ended (in-progress
+    breaks have no gross/profit yet). Covers every streamer by default,
+    newest stream first.
+
+    Args:
+        streamer_username: Optional exact username to scope to one streamer.
+            Omit to search every streamer.
+        pack_count: Optional exact total pack count to filter to, e.g. 1 for
+            "breaks with only 1 pack". Omit (-1, the default) for every
+            pack count.
+        start_date: Optional inclusive start date as YYYY-MM-DD, compared
+            against the break's own stream's date.
+        end_date: Optional inclusive end date as YYYY-MM-DD.
+        limit: Maximum number of breaks to return, newest first. Defaults to 50.
+    """
+    streamer_username = streamer_username.strip()
+
+    if streamer_username:
+        user = repo.find_user_by_username(streamer_username)
+        if user is None or ROLE_STREAMER not in user.roles or not user.streamer_database_name:
+            return _to_tool_result({"error": f"No streamer found with username '{streamer_username}'."})
+        users = [user]
+    else:
+        users = _streamer_users()
+
+    start = _parse_date(start_date)
+    end = _parse_date(end_date)
+    products_by_id = {p.id: p.name for p in repo.list_products()}
+
+    rows = []
+    for user in users:
+        streams_by_id = {s.id: s for s in streamer_repo.list_streams(user.streamer_database_name)}
+
+        for b in streamer_repo.list_all_breaks_for_streamer(user.streamer_database_name):
+            if b.break_gross is None:
+                continue
+
+            total_packs = sum(line["quantity"] for line in b.pack_lines)
+            if pack_count >= 0 and total_packs != pack_count:
+                continue
+
+            stream = streams_by_id.get(b.stream_id)
+            stream_date = stream.start_time.date() if stream and stream.start_time else None
+
+            if start is not None and (stream_date is None or stream_date < start):
+                continue
+            if end is not None and (stream_date is None or stream_date > end):
+                continue
+
+            rows.append((
+                stream_date,
+                b.sequence_number,
+                {
+                    "streamer_username": user.username,
+                    "stream_date": stream_date,
+                    "break_sequence_number": b.sequence_number,
+                    "break_name": b.name,
+                    "packs": [
+                        {
+                            "product_name": products_by_id.get(line["product_id"], line["product_id"]),
+                            "quantity": line["quantity"],
+                        }
+                        for line in b.pack_lines
+                    ],
+                    "total_pack_count": total_packs,
+                    "break_gross": b.break_gross,
+                    "break_profit": b.break_profit,
+                    "break_profit_margin": b.break_profit_margin,
+                },
+            ))
+
+    rows.sort(key=lambda r: (r[0] or date.min, r[1]), reverse=True)
+    return _to_tool_result([row[2] for row in rows[:limit]])
 
 
 @beta_tool
@@ -589,6 +682,7 @@ _TOOLS = [
     get_company_summary,
     get_streamer_performance,
     get_break_profit_by_pack_count,
+    list_breaks,
     get_master_inventory_summary,
     get_price_history,
     get_recent_price_changes,

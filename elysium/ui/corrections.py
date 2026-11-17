@@ -9,6 +9,7 @@ when a pack-line increase actually needs one.
 
 from decimal import Decimal, InvalidOperation
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -99,17 +100,22 @@ class CorrectBreakDialog(QDialog):
             self._add_row(line["product_id"], line["quantity"], price_editable=False)
         layout.addWidget(self.table)
 
+        self._addable_products = sorted(products_by_id.values(), key=lambda p: p.name)
+
+        self.product_search_input = QLineEdit()
+        self.product_search_input.setPlaceholderText("Search for a pack to add...")
+        self.product_search_input.textChanged.connect(self._refresh_add_product_combo)
+        layout.addWidget(self.product_search_input)
+
         add_row_layout = QHBoxLayout()
         self.add_product_combo = QComboBox()
-        existing_ids = {line["product_id"] for line in break_obj.pack_lines}
-        for product in sorted(products_by_id.values(), key=lambda p: p.name):
-            if product.id not in existing_ids:
-                self.add_product_combo.addItem(product.name, product.id)
         self.add_row_button = QPushButton("Add Product Line")
         self.add_row_button.clicked.connect(self.on_add_row)
         add_row_layout.addWidget(self.add_product_combo, stretch=1)
         add_row_layout.addWidget(self.add_row_button)
         layout.addLayout(add_row_layout)
+
+        self._refresh_add_product_combo()
 
         gross_layout = QHBoxLayout()
         gross_layout.addWidget(QLabel("New Break Gross (optional, blank = unchanged):"))
@@ -119,7 +125,9 @@ class CorrectBreakDialog(QDialog):
         gross_layout.addWidget(self.gross_input)
         layout.addLayout(gross_layout)
 
-        layout.addWidget(QLabel("Reason (required):"))
+        reason_label = QLabel("Reason (required):")
+        reason_label.setStyleSheet("color: #ff0000;")
+        layout.addWidget(reason_label)
         self.reason_input = QTextEdit()
         self.reason_input.setMaximumHeight(70)
         layout.addWidget(self.reason_input)
@@ -130,6 +138,18 @@ class CorrectBreakDialog(QDialog):
         layout.addWidget(buttons)
 
         self.setLayout(layout)
+
+    def _refresh_add_product_combo(self, search_text: str = ""):
+        search_text = search_text.strip().lower()
+        excluded_ids = set(self._row_product_ids)
+
+        self.add_product_combo.clear()
+        for product in self._addable_products:
+            if product.id in excluded_ids:
+                continue
+            if search_text and search_text not in product.name.lower():
+                continue
+            self.add_product_combo.addItem(product.name, product.id)
 
     def _add_row(self, product_id: str, original_qty: int, price_editable: bool):
         row = self.table.rowCount()
@@ -161,9 +181,7 @@ class CorrectBreakDialog(QDialog):
 
         has_snapshot_price = self.stream.price_for_product(product_id) is not None
         self._add_row(product_id, 0, price_editable=not has_snapshot_price)
-        idx = self.add_product_combo.findData(product_id)
-        if idx >= 0:
-            self.add_product_combo.removeItem(idx)
+        self._refresh_add_product_combo(self.product_search_input.text())
 
     def pack_line_changes(self) -> dict[str, int]:
         changes = {}
@@ -208,7 +226,9 @@ class CorrectFinalGrossDialog(QDialog):
         self.gross_input.setValue(float(stream.final_stream_gross or 0))
         layout.addWidget(self.gross_input)
 
-        layout.addWidget(QLabel("Reason (required):"))
+        reason_label = QLabel("Reason (required):")
+        reason_label.setStyleSheet("color: #ff0000;")
+        layout.addWidget(reason_label)
         self.reason_input = QTextEdit()
         self.reason_input.setMaximumHeight(70)
         layout.addWidget(self.reason_input)
@@ -363,14 +383,23 @@ class StreamCorrectionsScreen(QWidget):
         self.breaks = streamer_repo.list_breaks_for_stream(
             streamer.streamer_database_name, self.selected_stream.id, include_deleted=True
         )
+        products_by_id = {p.id: p for p in repo.list_products()}
 
         self.breaks_table.setRowCount(len(self.breaks))
         for row, b in enumerate(self.breaks):
+            pack_names = [
+                products_by_id[line["product_id"]].name if line["product_id"] in products_by_id else line["product_id"]
+                for line in b.pack_lines
+            ]
+            name_item = QTableWidgetItem("\n".join(pack_names))
+            name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
+
             self.breaks_table.setItem(row, 0, QTableWidgetItem(str(b.sequence_number)))
-            self.breaks_table.setItem(row, 1, QTableWidgetItem(b.name or ""))
+            self.breaks_table.setItem(row, 1, name_item)
             self.breaks_table.setItem(row, 2, QTableWidgetItem(b.status))
             self.breaks_table.setItem(row, 3, QTableWidgetItem(str(b.break_gross)))
             self.breaks_table.item(row, 0).setData(1000, b.id)
+            self.breaks_table.setRowHeight(row, max(24, 18 * max(len(pack_names), 1)))
 
         # Only auto-size once -- selecting a different stream calls this
         # again, and resizing on every call would keep undoing a

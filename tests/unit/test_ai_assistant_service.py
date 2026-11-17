@@ -225,6 +225,147 @@ def test_streamer_performance_reports_error_for_unknown_streamer(monkeypatch):
     assert "error" in result
 
 
+# --- list_breaks ---
+
+
+def test_list_breaks_filters_by_pack_count_and_names_the_packs(monkeypatch):
+    streamer = User(
+        id="s1", username="streamer1", password_hash="x", roles=[ROLE_STREAMER],
+        streamer_database_name="elysium_s_a",
+    )
+    monkeypatch.setattr(svc.repo, "list_users", lambda: [streamer])
+    monkeypatch.setattr(svc.repo, "list_products", lambda: [make_product("p1", "Foundations Play Booster")])
+    monkeypatch.setattr(svc.streamer_repo, "list_streams", lambda db_name: [
+        make_stream(STATUS_COMPLETED, datetime(2026, 6, 15)),
+    ])
+
+    one_pack = Break(
+        id="b1", stream_id="st1", sequence_number=1, status=STATUS_ENDED_EDITABLE,
+        pack_lines=[{"product_id": "p1", "quantity": 1, "locked_unit_price": None, "line_market_value": None}],
+        break_gross=Decimal("20"), break_profit=Decimal("5"),
+    )
+    three_pack_break = make_break(three_packs(), Decimal("30"), Decimal("10"))
+    monkeypatch.setattr(svc.streamer_repo, "list_all_breaks_for_streamer", lambda db_name: [one_pack, three_pack_break])
+
+    result = json.loads(svc.list_breaks.func(pack_count=1))
+
+    assert len(result) == 1
+    assert result[0]["streamer_username"] == "streamer1"
+    assert result[0]["stream_date"] == "2026-06-15"
+    assert result[0]["break_sequence_number"] == 1
+    assert result[0]["total_pack_count"] == 1
+    assert result[0]["packs"] == [{"product_name": "Foundations Play Booster", "quantity": 1}]
+    assert result[0]["break_gross"] == 20.0
+
+
+def test_list_breaks_excludes_breaks_with_no_gross_yet(monkeypatch):
+    streamer = User(
+        id="s1", username="streamer1", password_hash="x", roles=[ROLE_STREAMER],
+        streamer_database_name="elysium_s_a",
+    )
+    monkeypatch.setattr(svc.repo, "list_users", lambda: [streamer])
+    monkeypatch.setattr(svc.repo, "list_products", lambda: [])
+    monkeypatch.setattr(svc.streamer_repo, "list_streams", lambda db_name: [make_stream(STATUS_COMPLETED, datetime(2026, 6, 15))])
+
+    still_active = make_break(three_packs(), break_gross=None, break_profit=None)
+    ended = make_break(three_packs(), Decimal("30"), Decimal("10"))
+    monkeypatch.setattr(svc.streamer_repo, "list_all_breaks_for_streamer", lambda db_name: [still_active, ended])
+
+    result = json.loads(svc.list_breaks.func())
+
+    assert len(result) == 1
+    assert result[0]["break_gross"] == 30.0
+
+
+def test_list_breaks_scopes_to_one_streamer_when_given(monkeypatch):
+    streamer1 = User(
+        id="s1", username="streamer1", password_hash="x", roles=[ROLE_STREAMER],
+        streamer_database_name="elysium_s_a",
+    )
+    monkeypatch.setattr(svc.repo, "find_user_by_username", lambda username: streamer1 if username == "streamer1" else None)
+    monkeypatch.setattr(svc.repo, "list_products", lambda: [])
+    monkeypatch.setattr(svc.streamer_repo, "list_streams", lambda db_name: [make_stream(STATUS_COMPLETED, datetime(2026, 6, 15))])
+
+    calls = []
+    def fake_list_all_breaks_for_streamer(db_name):
+        calls.append(db_name)
+        return [make_break(three_packs(), Decimal("30"), Decimal("10"))]
+    monkeypatch.setattr(svc.streamer_repo, "list_all_breaks_for_streamer", fake_list_all_breaks_for_streamer)
+
+    result = json.loads(svc.list_breaks.func(streamer_username="streamer1"))
+
+    assert calls == ["elysium_s_a"]
+    assert len(result) == 1
+
+
+def test_list_breaks_reports_error_for_unknown_streamer(monkeypatch):
+    monkeypatch.setattr(svc.repo, "find_user_by_username", lambda username: None)
+
+    result = json.loads(svc.list_breaks.func(streamer_username="nobody"))
+
+    assert "error" in result
+
+
+def test_list_breaks_filters_by_stream_date_range(monkeypatch):
+    streamer = User(
+        id="s1", username="streamer1", password_hash="x", roles=[ROLE_STREAMER],
+        streamer_database_name="elysium_s_a",
+    )
+    monkeypatch.setattr(svc.repo, "list_users", lambda: [streamer])
+    monkeypatch.setattr(svc.repo, "list_products", lambda: [])
+    monkeypatch.setattr(svc.streamer_repo, "list_streams", lambda db_name: [
+        Stream(id="in_range", streamer_id="s1", status=STATUS_COMPLETED, start_time=datetime(2026, 6, 15)),
+        Stream(id="out_of_range", streamer_id="s1", status=STATUS_COMPLETED, start_time=datetime(2026, 5, 1)),
+    ])
+
+    in_range_break = Break(
+        id="b1", stream_id="in_range", sequence_number=1, status=STATUS_ENDED_EDITABLE,
+        pack_lines=three_packs(), break_gross=Decimal("30"), break_profit=Decimal("10"),
+    )
+    out_of_range_break = Break(
+        id="b2", stream_id="out_of_range", sequence_number=1, status=STATUS_ENDED_EDITABLE,
+        pack_lines=three_packs(), break_gross=Decimal("999"), break_profit=Decimal("999"),
+    )
+    monkeypatch.setattr(
+        svc.streamer_repo, "list_all_breaks_for_streamer", lambda db_name: [in_range_break, out_of_range_break],
+    )
+
+    result = json.loads(svc.list_breaks.func(start_date="2026-06-01", end_date="2026-06-30"))
+
+    assert len(result) == 1
+    assert result[0]["break_gross"] == 30.0
+
+
+def test_list_breaks_sorts_newest_stream_first_and_respects_limit(monkeypatch):
+    streamer = User(
+        id="s1", username="streamer1", password_hash="x", roles=[ROLE_STREAMER],
+        streamer_database_name="elysium_s_a",
+    )
+    monkeypatch.setattr(svc.repo, "list_users", lambda: [streamer])
+    monkeypatch.setattr(svc.repo, "list_products", lambda: [])
+    monkeypatch.setattr(svc.streamer_repo, "list_streams", lambda db_name: [
+        Stream(id="older", streamer_id="s1", status=STATUS_COMPLETED, start_time=datetime(2026, 5, 1)),
+        Stream(id="newer", streamer_id="s1", status=STATUS_COMPLETED, start_time=datetime(2026, 6, 15)),
+    ])
+
+    older_break = Break(
+        id="b1", stream_id="older", sequence_number=1, status=STATUS_ENDED_EDITABLE,
+        pack_lines=three_packs(), break_gross=Decimal("10"), break_profit=Decimal("1"),
+    )
+    newer_break = Break(
+        id="b2", stream_id="newer", sequence_number=1, status=STATUS_ENDED_EDITABLE,
+        pack_lines=three_packs(), break_gross=Decimal("20"), break_profit=Decimal("2"),
+    )
+    monkeypatch.setattr(
+        svc.streamer_repo, "list_all_breaks_for_streamer", lambda db_name: [older_break, newer_break],
+    )
+
+    result = json.loads(svc.list_breaks.func(limit=1))
+
+    assert len(result) == 1
+    assert result[0]["break_gross"] == 20.0
+
+
 # --- get_price_history / get_recent_price_changes ---
 
 
